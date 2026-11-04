@@ -482,6 +482,7 @@ public class ClientWorldLoader {
     }
 
     public static void _onEndFrame() {
+        qouteall.imm_ptl.core.miscellaneous.FrameStats.onEndFrame();
         if (isInitialized) {
             RENDER_HELPER_MAP.values().forEach(DimensionRenderHelper::onEndFrame);
         }

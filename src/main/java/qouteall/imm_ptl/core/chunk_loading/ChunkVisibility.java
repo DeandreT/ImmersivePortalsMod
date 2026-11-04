@@ -36,6 +36,7 @@ public class ChunkVisibility {
     
     // a player nearer than this to a portal loads its other side as far as the render distance
     private static final double NEAR_PORTAL_DISTANCE = 5;
+    private static final int NEAR_PORTAL_LOADING_CAP = 12;
     
     private static int getDirectLoadingDistance(int renderDistance, double distanceToPortal) {
         if (distanceToPortal < NEAR_PORTAL_DISTANCE) {
@@ -48,9 +49,9 @@ public class ChunkVisibility {
     }
     
     /**
-     * @param isNearPortal the player stands at the portal (about to walk through): only the performance level caps
-     *                     the loading distance, not {@link IPGlobal#indirectLoadingRadiusCap} (8 chunks by default),
-     *                     which left terrain missing beyond 8 chunks in the view of the portal right in front of the player
+     * @param isNearPortal the player stands at the portal (about to walk through): the cap is at least
+     *                     NEAR_PORTAL_LOADING_CAP, because {@link IPGlobal#indirectLoadingRadiusCap} (8 chunks by default)
+     *                     left terrain missing in the view of the portal right in front of the player
      */
     private static int getCappedLoadingDistance(
         Portal portal, ServerPlayer player, int targetLoadingDistance, boolean isNearPortal
@@ -61,7 +62,10 @@ public class ChunkVisibility {
         int cap2 = IPGlobal.indirectLoadingRadiusCap;
         int cap3 = PerformanceLevel.getIndirectLoadingRadiusCap(ServerPerformanceMonitor.getLevel());
         
-        int cap = isNearPortal ? cap1 : Math.min(cap1, cap2);
+        // Near a portal more is loaded, so the view reaches past the normal cap for the walk through it. Not the full
+        // render distance: at 32 that generates about 4000 chunks while the player only looks through a small opening.
+        // The rest loads normally once the player has crossed.
+        int cap = isNearPortal ? Math.min(cap1, Math.max(cap2, NEAR_PORTAL_LOADING_CAP)) : Math.min(cap1, cap2);
         
         // load more for scaling portal
         if (portal.getScale() > 2) {
