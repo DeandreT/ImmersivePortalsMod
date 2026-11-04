@@ -344,7 +344,10 @@ public class DimensionRenderHelper {
         if (!isCurrent()) {
             levelRenderer.endFrame();
         }
-        releaseWhenIdle();
+        // extra helpers are released entirely when idle (below), and views don't go through this for them
+        if (ownsLightmap) {
+            releaseWhenIdle();
+        }
         for (DimensionRenderHelper extra : new ArrayList<>(extraHelpers)) {
             if (RenderStates.frameIndex - extra.lastUsedFrame > EXTRA_HELPER_IDLE_FRAMES) {
                 releaseExtraHelper(extra);
