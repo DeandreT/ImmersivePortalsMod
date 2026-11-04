@@ -22,10 +22,7 @@ public class PeripheralModEntry implements ModInitializer {
         PeripheralModMain.registerBiomeSources((id, ele) -> Registry.register(
             BuiltInRegistries.BIOME_SOURCE, id, ele
         ));
-        PeripheralModMain.registerCreativeTabs((id, ele) -> Registry.register(
-            BuiltInRegistries.CREATIVE_MODE_TAB, id, ele
-        ));
-        
+
         PeripheralModMain.init();
     }
 }

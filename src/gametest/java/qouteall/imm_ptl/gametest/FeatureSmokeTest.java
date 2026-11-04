@@ -1715,6 +1715,14 @@ public class FeatureSmokeTest implements FabricClientGameTest {
      */
     private void commandStick(ClientGameTestContext ctx, TestServerContext srv) {
         int y = groundY(srv, Level.OVERWORLD, 600, 600);
+        // seamless-only play: the tools exist for /give and commands, but no creative tab advertises them
+        boolean noCreativeTab = srv.computeOnServer(s ->
+            !net.minecraft.core.registries.BuiltInRegistries.CREATIVE_MODE_TAB.containsKey(
+                net.minecraft.resources.Identifier.fromNamespaceAndPath("immersive_portals", "general"))
+            && net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(
+                net.minecraft.resources.Identifier.fromNamespaceAndPath("immersive_portals", "portal_wand")));
+        check("seamless-only: no Immersive Portals creative tab, but the tool items still exist for /give",
+            noCreativeTab, "");
         check("command stick: built-in command sticks are registered",
             !qouteall.imm_ptl.peripheral.CommandStickItem.BUILT_IN_COMMAND_STICK_TYPES.isEmpty(), "");
         srv.runOnServer(s -> {
@@ -1741,6 +1749,8 @@ public class FeatureSmokeTest implements FabricClientGameTest {
      * Flint and steel on a glass wall creates a mirror covering the wall.
      */
     private void breakableMirror(ClientGameTestContext ctx, TestServerContext srv) {
+        // mirror creation is opt-in now (off by default): enable it just for this check
+        ctx.runOnClient(mc -> qouteall.imm_ptl.core.IPGlobal.enableMirrorCreation = true);
         int y = groundY(srv, Level.OVERWORLD, 620, 630);
         srv.runCommand(String.format(Locale.ROOT, "fill 620 %d 630 622 %d 630 minecraft:glass", y, y + 2));
         srv.runCommand(String.format(Locale.ROOT, "tp Player0 621.5 %d 626.5 0 0", y));
@@ -1750,6 +1760,7 @@ public class FeatureSmokeTest implements FabricClientGameTest {
         int mirrors = srv.computeOnServer(s -> s.overworld().getEntitiesOfClass(
             qouteall.imm_ptl.core.portal.BreakableMirror.class, new AABB(618, y - 2, 628, 625, y + 5, 633)).size());
         check("mirror: flint and steel on glass creates a mirror", mirrors >= 1, "mirrors " + mirrors);
+        ctx.runOnClient(mc -> qouteall.imm_ptl.core.IPGlobal.enableMirrorCreation = false);
         ctx.waitTicks(20);
         screenshot(ctx, "tools_mirror");
     }

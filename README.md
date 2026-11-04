@@ -21,6 +21,15 @@ DimLib and Cloth Config are bundled in the jar. [Sodium](https://modrinth.com/mo
 
 Saved data and add-ons keep working as far as they target 26.3, because the mod ID is still `immersive_portals`. Builds for older Minecraft versions are in the [`v6.0.6-mc1.21.1` releases](https://github.com/riyadmondol2006/Immersive-portals-mod-Revived-/releases).
 
+## Just a seamless portal — no items needed
+
+Build a normal obsidian frame, light it with flint and steel, and walk through: no loading screen,
+and the world on the other side is visible through the opening. That is the whole mod in normal play.
+The portal wand, portal helper, command sticks and mirrors are admin/creative tools from the original
+mod: they are not in the creative inventory and mirror creation is off by default. They still exist
+for `/give` and `/portal` commands, and mirror creation can be turned back on in the config
+(`enableMirrorCreation`).
+
 ## What works
 
 Each of these is checked automatically in the real game on every push:

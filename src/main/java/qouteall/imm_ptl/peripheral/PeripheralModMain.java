@@ -52,19 +52,6 @@ public class PeripheralModMain {
                 .useBlockDescriptionPrefix()
         );
     
-    public static final CreativeModeTab TAB =
-        FabricCreativeModeTab.builder()
-            .icon(() -> new ItemStack(PortalWandItem.instance))
-            .title(Component.translatable("imm_ptl.item_group"))
-            .displayItems((enabledFeatures, entries) -> {
-                PortalWandItem.addIntoCreativeTag(entries);
-                
-                CommandStickItem.addIntoCreativeTag(entries);
-                
-                entries.accept(PeripheralModMain.portalHelperBlockItem);
-            })
-            .build();
-    
     @Environment(EnvType.CLIENT)
     public static void initClient() {
         IPOuterClientMisc.initClient();
@@ -141,12 +128,4 @@ public class PeripheralModMain {
         );
     }
     
-    public static void registerCreativeTabs(
-        BiConsumer<Identifier, CreativeModeTab> regFunc
-    ) {
-        regFunc.accept(
-            McHelper.newResourceLocation("immersive_portals", "general"),
-            TAB
-        );
-    }
 }

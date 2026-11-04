@@ -117,8 +117,8 @@ public class IPConfig implements ConfigData {
         IPFeatureControl.enableVanillaBehaviorChangingByDefault() ?
             IPGlobal.EndPortalMode.normal : IPGlobal.EndPortalMode.vanilla;
     
-    public boolean enableMirrorCreation =
-        IPFeatureControl.enableVanillaBehaviorChangingByDefault();
+    // seamless portals only by default: no mirrors from flint and steel on glass
+    public boolean enableMirrorCreation = false;
     
     public boolean enableWarning = true;
     public boolean lightVanillaNetherPortalWhenCrouching = true;
