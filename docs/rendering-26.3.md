@@ -261,3 +261,8 @@ Run the visual test with the test shaderpack (`src/gametest/resources/immptl_tes
 `./gradlew runClientGameTest -PwithShaders` (OpenGL only; Iris crashes when Vulkan is forced).
 With a real pack: `-PshaderPack=<path to the zip>` (output in build/visual-test/opengl-pack-<name>).
 Checked this way: Complementary Reimagined r5.9.3, BSL v10.1.8.
+
+### Portal surfaces with a shaderpack
+A view's target holds the pack's finished image. In the world pass a surface is treated as an unlit block, so the pack's lighting, bloom and tone mapping process that image again, which overexposes it. So `PortalSurfaceRendering` queues each surface when it is submitted (not in the shadow map, where a portal doesn't belong) and draws it a second time when the view's `IrisRenderingPipeline.finalizeLevelRendering` ends, on the pack's final image. The surface from the world pass stays, for its depth: the second draw has the same depth, so it only passes where nothing nearer was drawn over the surface. Players, mobs, the hand and glass in front stay on top. Testing against the depth before translucents was tried and is wrong: skins render as translucent, so a player in front of a portal disappeared. The transformation is captured at `beginTranslucents`, because it isn't in place yet at submission and the pack changes it later.
+Known gap: a surface in a view (a portal seen through a portal or a mirror) isn't replaced, so it stays overexposed. A small depth bias didn't change this. The cause isn't known.
+Redrawing a view's shadow map less often was tried too, and gained nothing measurable (43 FPS either way with Complementary).

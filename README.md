@@ -34,14 +34,51 @@ for `/give` and `/portal` commands, and mirror creation can be turned back on in
 
 Each of these is checked automatically in the real game on every push:
 
-* See-through Nether portals, crossed without a loading screen, in singleplayer and on a dedicated server
+* See-through Nether portals, crossed without a loading screen, in singleplayer and with two players on a dedicated server
 * End portals, the End and the return trip
 * Portals to far places in the same dimension, rotating portals and mirrors
 * World wrapping and dimension stacks
 * The `/portal` commands, portal wand, portal helper, command stick and custom portal generation from data packs
 * Sodium and Iris (without a shader pack)
 
-Shader packs are experimental and aren't part of the automated checks. Iris needs the OpenGL backend.
+## Playing on a server
+
+Install the mod on the **server and on every player's game**, with Fabric API on both. The server has to send the world on the other side of a portal, and the client has to draw it. A player without the mod is refused when joining, and the other players aren't affected.
+
+Minecraft 26.3 servers have the whitelist on by default, so players are refused with "You are not white-listed" until you add them with `/whitelist add <name>` or set `white-list=false` in `server.properties`.
+
+Use the same build on the server and the clients. In testing, with two players and a portal in use, a dedicated server used about 850 MB of memory at under 2 ms per tick. That was a flat test world, so expect more on a real one.
+
+## Shader packs
+
+Iris needs the OpenGL backend. Shader packs are checked by hand, not on every push: the last check used Complementary Reimagined r5.9.3 and a lightweight pack called Gotham on an NVIDIA GTX 1650.
+
+The view through a portal is the pack's finished image. It's drawn directly on the pack's final image, so the pack doesn't process it twice. Players, mobs, your hand and glass in front of a portal still draw on top.
+
+Known limits with a shader pack:
+
+* A portal seen through another portal or a mirror can look overexposed.
+* A portal seen through glass or water is processed by the pack, so it can look overexposed there too.
+* Your pack runs once for the world and once for each visible portal, so expect a large frame rate drop while a portal is on screen.
+
+## Frame rate
+
+Measured on an NVIDIA GTX 1650 at 1080p and render distance 12, in a flat test world:
+
+| | No portal in view | One portal in view |
+|---|---:|---:|
+| No shader pack | 500 FPS | about 410 FPS |
+| Gotham | 185 FPS | about 100–120 FPS |
+| Complementary Reimagined | 76 FPS | about 45–50 FPS |
+
+If your game lags, try these:
+
+* Lower your **simulation distance**, especially if the log shows `Can't keep up` messages. Those mean the game's server side is falling behind, and it has to tick everything within this distance.
+* Lower your **render distance**. Each portal draws the world on its other side as well.
+* Use a lighter shader pack, or lower your pack's settings.
+* Choose the Performance preset in the mod's config screen.
+
+Standing at a portal now loads at most 12 chunks of the other side, instead of your whole render distance. At render distance 32 that lowered the chunks held in memory by 42%. Once you've crossed, the rest loads normally.
 
 ## The obsidian frame on the other side
 
@@ -102,9 +139,10 @@ Every push runs [this workflow](.github/workflows/release.yml), and a release is
 1. Build the jar and run the unit tests.
 2. Start a real Fabric server with the jar, and check that a portal stays alive.
 3. Start a real Fabric client with the jar, with and without Sodium and Iris. It checks that the Nether is visible through a portal, drops the player through, waits for the idle overworld to be released, returns, and checks that the terrain and portal view came back.
-4. Compare memory with an unmodded baseline, and fail if the mod costs more than the [budgets](.github/scripts/smoke_test.py).
-5. Run the in-game feature suite.
-6. Publish the jar and its checksum as a [GitHub release](https://github.com/riyadmondol2006/Immersive-portals-mod-Revived-/releases).
+4. Start a dedicated server with the jar, and join it with two real clients. Both must cross a portal, and a client without the mod must be refused.
+5. Compare memory with an unmodded baseline, and fail if the mod costs more than the [budgets](.github/scripts/smoke_test.py).
+6. Run the in-game feature suite.
+7. Publish the jar and its checksum as a [GitHub release](https://github.com/riyadmondol2006/Immersive-portals-mod-Revived-/releases).
 
 Pushes to the default branch become the latest release, and other branches become pre-releases. Add `[skip ci]` to a commit message to skip a run. Each run keeps its screenshots, logs and memory numbers in the `smoke-test-evidence` artifact.
 
