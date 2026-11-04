@@ -41,6 +41,7 @@ FATAL_LOG = re.compile(
     r"|InvalidMixinException|InjectionError|Mixin apply for mod .* failed"
     r"|NoSuchMethodError|NoSuchFieldError|NoClassDefFoundError"
     r"|OutOfMemoryError|Minecraft Crash Report|Incompatible mods found"
+    r"|Failed to create backend OpenGL"
 )
 
 SERVER_BOOT_TIMEOUT = 300
@@ -436,14 +437,16 @@ def client_classpath(props, cache):
 
 
 def screenshot(game, dest, pid):
-    """Presses Minecraft's own screenshot key, so this is the real framebuffer."""
+    """Takes a screenshot with Minecraft's own key if it can, so it's the real framebuffer."""
     folder = game / "screenshots"
     before = set(folder.glob("*.png")) if folder.exists() else set()
     window = subprocess.run(
         ["xdotool", "search", "--pid", str(pid)], check=True, capture_output=True, text=True, timeout=30,
     ).stdout.split()[-1]
-    subprocess.run(["xdotool", "key", "--window", window, "F2"], check=True, timeout=30)
-    deadline = time.monotonic() + 30
+    # Xvfb has no window manager to give the window keyboard focus, and SDL only takes focused input.
+    subprocess.run(["xdotool", "windowfocus", window], check=False, timeout=30)
+    subprocess.run(["xdotool", "key", "F2"], check=True, timeout=30)
+    deadline = time.monotonic() + 8
     while time.monotonic() < deadline:
         new = set(folder.glob("*.png")) - before if folder.exists() else set()
         if new:
@@ -451,7 +454,11 @@ def screenshot(game, dest, pid):
             shutil.copy(new.pop(), dest)
             return
         time.sleep(0.5)
-    raise SmokeFailure("the game did not save a screenshot")
+    # Under Xvfb the key doesn't reach the game, but its framebuffer can be read directly (not under gamescope).
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "x11grab", "-i", os.environ["DISPLAY"], "-frames:v", "1", str(dest)],
+        check=True, timeout=60,
+    )
 
 
 def mean_color(path, crop):

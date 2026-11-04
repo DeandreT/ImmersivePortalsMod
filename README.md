@@ -102,7 +102,7 @@ xvfb-run -a -s "-screen 0 854x480x24" python3 .github/scripts/smoke_test.py clie
 xvfb-run -a -s "-screen 0 1280x720x24" ./gradlew runClientGameTest -Pimm_ptl.visualTest.skip=true
 ```
 
-If you don't have `xvfb-run`, `gamescope --backend headless -W 854 -H 480 -w 854 -h 480 --` works in its place, but it hides the exit code, so check the output for `[smoke] PASSED`. The feature suite writes its results to `build/feature-test/report.txt`.
+Without a GPU, set `SDL_VIDEO_FORCE_EGL=1` and `LIBGL_ALWAYS_SOFTWARE=1`, because Xvfb's software OpenGL has no sRGB-capable modes and Minecraft 26.x asks for one. If you don't have `xvfb-run`, `gamescope --backend headless -W 854 -H 480 -w 854 -h 480 --` works in its place, but it hides the exit code, so check the output for `[smoke] PASSED`. The feature suite writes its results to `build/feature-test/report.txt`.
 
 The rendering design is described in [docs/rendering-26.3.md](docs/rendering-26.3.md). For general mod development setup, see the [Fabric documentation](https://docs.fabricmc.net/develop/).
 
