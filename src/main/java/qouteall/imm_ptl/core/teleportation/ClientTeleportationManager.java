@@ -1,5 +1,6 @@
 package qouteall.imm_ptl.core.teleportation;
 
+import net.minecraft.util.profiling.Profiler;
 import com.mojang.logging.LogUtils;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -29,11 +30,8 @@ import qouteall.imm_ptl.core.api.PortalAPI;
 import qouteall.imm_ptl.core.collision.CollisionHelper;
 import qouteall.imm_ptl.core.collision.PortalCollisionHandler;
 import qouteall.imm_ptl.core.compat.GravityChangerInterface;
-import qouteall.imm_ptl.core.ducks.IEAbstractClientPlayer;
 import qouteall.imm_ptl.core.ducks.IEClientPlayNetworkHandler;
 import qouteall.imm_ptl.core.ducks.IEEntity;
-import qouteall.imm_ptl.core.ducks.IEGameRenderer;
-import qouteall.imm_ptl.core.ducks.IEMinecraftClient;
 import qouteall.imm_ptl.core.ducks.IEParticleManager;
 import qouteall.imm_ptl.core.network.ImmPtlNetworking;
 import qouteall.imm_ptl.core.network.PacketRedirectionClient;
@@ -42,10 +40,8 @@ import qouteall.imm_ptl.core.portal.Portal;
 import qouteall.imm_ptl.core.portal.PortalExtension;
 import qouteall.imm_ptl.core.portal.animation.ClientPortalAnimationManagement;
 import qouteall.imm_ptl.core.portal.animation.StableClientTimer;
-import qouteall.imm_ptl.core.render.FrontClipping;
-import qouteall.imm_ptl.core.render.MyGameRenderer;
 import qouteall.imm_ptl.core.render.TransformationManager;
-import qouteall.imm_ptl.core.render.context_management.FogRendererContext;
+import qouteall.imm_ptl.core.render.VisibleSectionDiscovery;
 import qouteall.imm_ptl.core.render.context_management.RenderStates;
 import qouteall.imm_ptl.core.render.context_management.WorldRenderInfo;
 import qouteall.q_misc_util.Helper;
@@ -120,9 +116,11 @@ public class ClientTeleportationManager {
     
     public static void manageTeleportation(boolean isTicking_) {
         if (IPGlobal.disableTeleportation) {
+            // otherwise the movement since teleportation was disabled would be checked when it's enabled again
+            lastPlayerEyePos = null;
             return;
         }
-        
+
         isTicking = isTicking_;
         
         teleportationCounter++;
@@ -139,7 +137,7 @@ public class ClientTeleportationManager {
             return;
         }
         
-        client.getProfiler().push("ip_teleport");
+        Profiler.get().push("ip_teleport");
         
         ClientPortalAnimationManagement.foreachCustomAnimatedPortals(
             portal -> {
@@ -199,7 +197,7 @@ public class ClientTeleportationManager {
         lastRecordStableTickTime = StableClientTimer.getStableTickTime();
         lastRecordStablePartialTicks = StableClientTimer.getStablePartialTicks();
         
-        client.getProfiler().pop();
+        Profiler.get().pop();
     }
     
     private static record TeleportationRec(
@@ -291,9 +289,9 @@ public class ClientTeleportationManager {
             Portal portal = teleportation.portal();
             Vec3 collidingPos = teleportation.worldCollisionPoint();
             
-            client.getProfiler().push("portal_teleport");
+            Profiler.get().push("portal_teleport");
             teleportPlayer(teleportation, partialTicks);
-            client.getProfiler().pop();
+            Profiler.get().pop();
             
             boolean allowOverlappedTeleport = portal.respectParallelOrientedPortal();
             
@@ -369,7 +367,7 @@ public class ClientTeleportationManager {
         
         ScaleUtils.onClientPlayerTeleported(portal);
         
-        player.connection.send(ClientPlayNetworking.createC2SPacket(
+        player.connection.send(ClientPlayNetworking.createServerboundPacket(
             new ImmPtlNetworking.TeleportPacket(
                 PortalAPI.clientDimKeyToInt(fromDimension),
                 thisTickEyePos,
@@ -420,7 +418,8 @@ public class ClientTeleportationManager {
         isTeleportingTick = true;
         isTeleportingFrame = true;
         
-        MyGameRenderer.vanillaTerrainSetupOverride = 1;
+        VisibleSectionDiscovery.onPlayerTeleported();
+        
     }
     
     
@@ -430,7 +429,7 @@ public class ClientTeleportationManager {
     }
     
     public static void forceTeleportPlayer(ResourceKey<Level> toDimension, Vec3 destination) {
-        LOGGER.info("client player force teleported {} {}", toDimension.location(), destination);
+        LOGGER.info("client player force teleported {} {}", toDimension.identifier(), destination);
         
         ClientLevel fromWorld = client.level;
         assert fromWorld != null;
@@ -449,7 +448,7 @@ public class ClientTeleportationManager {
         lastPlayerEyePos = null;
         
         RenderStates.updatePreRenderInfo(RenderStates.getPartialTick());
-        MyGameRenderer.vanillaTerrainSetupOverride = 1;
+        VisibleSectionDiscovery.onPlayerTeleported();
     }
     
     /**
@@ -459,7 +458,6 @@ public class ClientTeleportationManager {
         LocalPlayer player, ClientLevel fromWorld, ClientLevel toWorld, Vec3 newEyePos
     ) {
         Validate.isTrue(!WorldRenderInfo.isRendering());
-        Validate.isTrue(!FrontClipping.isClippingEnabled);
         Validate.isTrue(!PacketRedirectionClient.getIsProcessingRedirectedMessage());
         
         Entity vehicle = player.getVehicle();
@@ -480,23 +478,25 @@ public class ClientTeleportationManager {
         ((IEEntity) player).ip_unsetRemoved();
         
         toWorld.addEntity(player);
-        ((IEAbstractClientPlayer) player).ip_setClientLevel(toWorld);
-        
-        IEGameRenderer gameRenderer = (IEGameRenderer) Minecraft.getInstance().gameRenderer;
-        gameRenderer.ip_setLightmapTextureManager(ClientWorldLoader
-            .getDimensionRenderHelper(toDimension).lightmapTexture);
         
         client.level = toWorld;
-        ((IEMinecraftClient) client).ip_setWorldRenderer(
-            ClientWorldLoader.getWorldRenderer(toDimension)
+        // switch the LevelRenderer, LevelExtractor and lightmap to the new dimension's
+        ClientWorldLoader.switchClientRenderingTo(
+            ClientWorldLoader.getDimensionRenderHelper(toDimension)
         );
+        // the main camera's level (used for sky/fog colors via its attribute probe) and the block lighting type.
+        // vanilla does this in Minecraft.updateLevelInEngines, which is not called for seamless teleportation
+        client.gameRenderer.setLevel(toWorld);
+        // resample the sky/fog colors now (otherwise they're default/black until the next tick)
+        client.gameRenderer.mainCamera().attributeProbe().reset();
+        client.gameRenderer.mainCamera().attributeProbe().tick(toWorld, player.getEyePosition());
         
         if (client.particleEngine != null) {
             // avoid clearing all particles
             ((IEParticleManager) client.particleEngine).ip_setWorld(toWorld);
         }
         
-        client.getBlockEntityRenderDispatcher().setLevel(toWorld);
+        // in 26.x the BlockEntityRenderDispatcher no longer holds a level, nothing to switch
         
         if (vehicle != null) {
             Vec3 offset = McHelper.getVehicleOffsetFromPassenger(vehicle, player);
@@ -510,18 +510,17 @@ public class ClientTeleportationManager {
                 player.position().add(offset),
                 McHelper.lastTickPosOf(player).add(offset)
             );
-            player.startRiding(vehicle, true);
+            player.startRiding(vehicle, true, true);
         }
         
         Helper.log(String.format(
             "Client Changed Dimension from %s to %s time: %s age: %s",
-            fromDimension.location(),
-            toDimension.location(),
+            fromDimension.identifier(),
+            toDimension.identifier(),
             tickTimeForTeleportation,
             player.tickCount
         ));
         
-        FogRendererContext.onPlayerTeleport(fromDimension, toDimension);
         
         O_O.onPlayerChangeDimensionClient(fromDimension, toDimension);
     }
@@ -634,7 +633,7 @@ public class ClientTeleportationManager {
             return;
         }
         
-        Vec3 levitationVec = Vec3.atLowerCornerOf(levitationDir.getNormal());
+        Vec3 levitationVec = Vec3.atLowerCornerOf(levitationDir.getUnitVec3i());
         
         Vec3 offset = levitationVec.scale(delta);
         
@@ -710,11 +709,8 @@ public class ClientTeleportationManager {
             
             // both of them are important for Minecart
             entity.setPos(pos);
-            entity.lerpTo(
-                pos.x, pos.y, pos.z,
-                entity.getYRot(), entity.getXRot(),
-                0
-            );
+            // cancel the position interpolation (it was lerpTo with 0 steps before 26.x)
+            entity.getInterpolation().cancel();
             entity.setPos(pos);
         }
     }

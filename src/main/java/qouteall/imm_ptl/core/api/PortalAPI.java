@@ -9,7 +9,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.util.Tuple;
+import qouteall.q_misc_util.my_util.Tuple;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
@@ -54,8 +54,8 @@ public class PortalAPI {
         Vec3 center = boxSurface.getCenter();
         portal.setPos(center.x, center.y, center.z);
         
-        portal.setAxisW(Vec3.atLowerCornerOf(directions.getA().getNormal()));
-        portal.setAxisH(Vec3.atLowerCornerOf(directions.getB().getNormal()));
+        portal.setAxisW(Vec3.atLowerCornerOf(directions.getA().getUnitVec3i()));
+        portal.setAxisH(Vec3.atLowerCornerOf(directions.getB().getUnitVec3i()));
         portal.setWidth(Helper.getCoordinate(areaSize, directions.getA().getAxis()));
         portal.setHeight(Helper.getCoordinate(areaSize, directions.getB().getAxis()));
     }
@@ -183,7 +183,7 @@ public class PortalAPI {
         McHelper.sendToTrackers(
             entity,
             PacketRedirection.createRedirectedMessage(
-                entity.getServer(),
+                entity.level().getServer(),
                 entity.level().dimension(),
                 packet
             )

@@ -20,26 +20,22 @@ import qouteall.imm_ptl.core.portal.animation.StableClientTimer;
 import qouteall.imm_ptl.core.render.CrossPortalEntityRenderer;
 import qouteall.imm_ptl.core.render.ForceMainThreadRebuild;
 import qouteall.imm_ptl.core.render.GuiPortalRendering;
-import qouteall.imm_ptl.core.render.ImmPtlViewArea;
-import qouteall.imm_ptl.core.render.MyRenderHelper;
-import qouteall.imm_ptl.core.render.ShaderCodeTransformation;
-import qouteall.imm_ptl.core.render.VisibleSectionDiscovery;
-import qouteall.imm_ptl.core.render.context_management.CloudContext;
-import qouteall.imm_ptl.core.render.optimization.GLResourceCache;
-import qouteall.imm_ptl.core.render.optimization.SharedBlockMeshBuffers;
-import qouteall.imm_ptl.core.render.renderer.RendererUsingFrameBuffer;
-import qouteall.imm_ptl.core.render.renderer.RendererUsingStencil;
+import qouteall.imm_ptl.core.render.ImmPtlDebugScreenEntry;
+import qouteall.imm_ptl.core.render.PortalViewRenderer;
 import qouteall.imm_ptl.core.teleportation.ClientTeleportationManager;
 import qouteall.q_misc_util.dimension.DimensionIntId;
 import qouteall.q_misc_util.my_util.MyTaskList;
 
 public class IPModMainClient {
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
+    
     
     private static void showNvidiaVideoCardWarning() {
         IPGlobal.CLIENT_TASK_LIST.addTask(MyTaskList.withDelayCondition(
             () -> Minecraft.getInstance().level == null,
             MyTaskList.oneShotTask(() -> {
-                if (IPMcHelper.isNvidiaVideocard()) {
+                // the linked issue is NVIDIA's OpenGL driver (threaded optimization); not with Vulkan
+                if (IPMcHelper.isNvidiaVideocard() && IPMcHelper.isOpenGlBackend()) {
                     if (!SodiumInterface.invoker.isSodiumPresent()) {
                         CHelper.printChat(
                             Component.translatable("imm_ptl.nvidia_warning")
@@ -69,34 +65,40 @@ public class IPModMainClient {
     }
     
     public static void init() {
+        // Dev tool: -Dimm_ptl.mixinAudit=true loads all mixin targets (reporting failed mixins), then exits.
+        if (Boolean.getBoolean("imm_ptl.mixinAudit")) {
+            Minecraft.getInstance().execute(() -> {
+                LOGGER.info("[ImmPtl] Mixin audit started");
+                org.spongepowered.asm.mixin.MixinEnvironment.getCurrentEnvironment().audit();
+                LOGGER.info("[ImmPtl] Mixin audit finished");
+                Runtime.getRuntime().halt(0);
+            });
+        }
+        
         ClientWorldLoader.init();
         
         ClientTeleportationManager.init();
         
         Minecraft.getInstance().execute(() -> {
-            ShaderCodeTransformation.init();
             
-            MyRenderHelper.init();
             
-            IPCGlobal.rendererUsingStencil = new RendererUsingStencil();
-            IPCGlobal.rendererUsingFrameBuffer = new RendererUsingFrameBuffer();
+            PortalViewRenderer.init();
             
-            IPCGlobal.renderer = IPCGlobal.rendererUsingStencil;
+            ImmPtlDebugScreenEntry.init();
+            
+            
         });
         
         DubiousThings.init();
         
         CrossPortalEntityRenderer.init();
         
-        GLResourceCache.init();
         
         CollisionHelper.initClient();
         
         PortalRenderInfo.init();
         
-        CloudContext.init();
         
-        SharedBlockMeshBuffers.init();
         
         GcMonitor.initClient();
         
@@ -114,9 +116,7 @@ public class IPModMainClient {
         
         ClientPortalAnimationManagement.init();
         
-        VisibleSectionDiscovery.init();
         
-        ImmPtlViewArea.init();
         
         IPFlywheelCompat.init();
     

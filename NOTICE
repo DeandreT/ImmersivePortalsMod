@@ -1,0 +1,24 @@
+Immersive Portals (Revived)
+
+Original work: Immersive Portals by qouteall and contributors
+https://github.com/iPortalTeam/ImmersivePortalsMod
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The port to Minecraft 26.3 is based on ImmersivelyVibedPortals by nyannoying1337
+https://github.com/nyannoying1337/ImmersivelyVibedPortals (branch port/26.3, commit 7ae75174)
+Also licensed under the Apache License, Version 2.0. Changes made in that port:
+- Ported to Minecraft 26.3, unobfuscated Minecraft, Java 25.
+- Portal rendering rewritten for Minecraft's new graphics layer (see docs/rendering-26.3.md):
+  offscreen portal views, per-dimension LevelRenderer/LevelExtractor, shader-based front clipping.
+- Removed the stencil, framebuffer and GL-query based renderers and related helpers.
+- Updated mixins, access widener, data (dimension types) and networking to 26.3 APIs.
+- Disabled fetching update/compatibility info from the original author's server.
+
+Changes made in this project:
+- Renamed to "Immersive Portals (Revived)"; contact links point to this project. The mod id stays
+  immersive_portals, so add-ons and saved data keep working.
+- DimLib's 26.3 port by nyannoying1337 (https://github.com/nyannoying1337/DimLib, branch port/26.3)
+  is kept in dimlib/ and built from source. See dimlib/NOTICE and dimlib/LICENSE.
+- Reduced memory use: smaller terrain GPU buffers and staging buffers, returning free Java and native
+  memory to the system, releasing the terrain data of idle dimensions, and freeing idle portal view targets.
+- Updated to Fabric Loader 0.20.1, Fabric API 0.165.2, Loom 1.19, Gradle 9.8.2.

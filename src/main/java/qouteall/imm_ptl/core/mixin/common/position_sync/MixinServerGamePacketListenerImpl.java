@@ -10,7 +10,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.RelativeMovement;
+import net.minecraft.world.entity.PositionMoveRotation;
+import net.minecraft.world.entity.Relative;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.phys.AABB;
@@ -132,9 +133,9 @@ public abstract class MixinServerGamePacketListenerImpl implements IEServerPlayN
             // this actually never happens, because the vanilla client will disconnect immediately
             // when receiving the position sync packet that has the extra dimension field
             LOGGER.error("Player move packet is missing dimension info. Maybe the player client doesn't install iPortal");
-            ServerTaskList.of(player.server).addTask(() -> {
+            ServerTaskList.of(player.level().getServer()).addTask(() -> {
                 player.connection.disconnect(Component.literal(
-                    "The client does not have Immersive Portals mod"
+                    "The client does not have the Immersive Portals mod"
                 ));
                 return true;
             });
@@ -145,7 +146,7 @@ public abstract class MixinServerGamePacketListenerImpl implements IEServerPlayN
             if (LOG_LIMIT.tryDecrement()) {
                 LOGGER.info(
                     "[ImmPtl] Ignoring player move packet. Player: {} Packet: {} {} {} {}",
-                    player, packetDimension.location(),
+                    player, packetDimension.identifier(),
                     packet.getX(player.getX()),
                     packet.getY(player.getY()),
                     packet.getZ(player.getZ())
@@ -157,9 +158,9 @@ public abstract class MixinServerGamePacketListenerImpl implements IEServerPlayN
             if (ip_wrongMovePacketCount > 10) {
                 LOGGER.info(
                     "[ImmPtl] Force move player {} {} {}",
-                    player, player.level().dimension().location(), player.position()
+                    player, player.level().dimension().identifier(), player.position()
                 );
-                ServerTeleportationManager.of(player.server).forceTeleportPlayer(
+                ServerTeleportationManager.of(player.level().getServer()).forceTeleportPlayer(
                     player, player.level().dimension(), player.position()
                 );
                 ip_wrongMovePacketCount = 0;
@@ -179,11 +180,10 @@ public abstract class MixinServerGamePacketListenerImpl implements IEServerPlayN
     @Overwrite
     @IPVanillaCopy
     public void teleport(
-        double x, double y, double z, float yaw, float pitch,
-        Set<RelativeMovement> relativeAttrs
+        PositionMoveRotation destination, Set<Relative> relatives
     ) {
         // it may request teleport while this.player is marked removed during respawn
-        
+
         if (player.getRemovalReason() != null) {
             LOGGER.error(
                 "[ImmPtl] Tries to send player pos packet to a removed player {}",
@@ -191,49 +191,47 @@ public abstract class MixinServerGamePacketListenerImpl implements IEServerPlayN
             );
             return;
         }
-        
+
         if (IPConfig.getConfig().serverTeleportLogging) {
             LOGGER.info(
-                "Teleporting player {} to {} {} {} {}",
-                player, player.level().dimension().location(), x, y, z
+                "Teleporting player {} to {} {} {}",
+                player, player.level().dimension().identifier(), destination.position(), relatives
             );
         }
-        
-        double xBase = relativeAttrs.contains(RelativeMovement.X) ? this.player.getX() : 0.0;
-        double yBase = relativeAttrs.contains(RelativeMovement.Y) ? this.player.getY() : 0.0;
-        double zBase = relativeAttrs.contains(RelativeMovement.Z) ? this.player.getZ() : 0.0;
-        float yRotBase = relativeAttrs.contains(RelativeMovement.Y_ROT) ? this.player.getYRot() : 0.0f;
-        float xRotBase = relativeAttrs.contains(RelativeMovement.X_ROT) ? this.player.getXRot() : 0.0f;
-        
-        this.awaitingPositionFromClient = new Vec3(x, y, z);
-        this.ip_dimOfAwaitingPosition = player.level().dimension();
+
+        this.awaitingTeleportTime = this.tickCount;
         if (++this.awaitingTeleport == Integer.MAX_VALUE) {
             this.awaitingTeleport = 0;
         }
-        
-        this.awaitingTeleportTime = this.tickCount;
-        this.player.absMoveTo(x, y, z, yaw, pitch);
-        ClientboundPlayerPositionPacket lookPacket = new ClientboundPlayerPositionPacket(
-            x - xBase, y - yBase, z - zBase,
-            yaw - yRotBase, pitch - xRotBase,
-            relativeAttrs, this.awaitingTeleport
+
+        this.player.teleportSetPosition(destination, relatives);
+        this.awaitingPositionFromClient = this.player.position();
+        this.ip_dimOfAwaitingPosition = player.level().dimension();
+        ClientboundPlayerPositionPacket lookPacket = ClientboundPlayerPositionPacket.of(
+            this.awaitingTeleport, destination, relatives
         );
-        
-        ((IEPlayerPositionLookS2CPacket) lookPacket).ip_setPlayerDimension(player.level().dimension());
-        
+
+        ((IEPlayerPositionLookS2CPacket) (Object) lookPacket).ip_setPlayerDimension(player.level().dimension());
+
         this.player.connection.send(lookPacket);
     }
-    
+
+    // in 26.x it's isEntityCollidingWithAnythingNew, which is also used for vehicles
     @Inject(
-        method = "isPlayerCollidingWithAnythingNew", at = @At("HEAD"), cancellable = true
+        method = "isEntityCollidingWithAnythingNew", at = @At("HEAD"), cancellable = true
     )
     private void onIsPlayerCollidingWithAnythingNew(
-        LevelReader level, AABB playerBB, double newX, double newY, double newZ, CallbackInfoReturnable<Boolean> cir
+        LevelReader level, Entity entity, AABB playerBB, double newX, double newY, double newZ,
+        CallbackInfoReturnable<Boolean> cir
     ) {
         if (!IPGlobal.crossPortalCollision) {
             return;
         }
-        
+
+        if (entity != this.player) {
+            return;
+        }
+
         // for this to work, the player's portal collision status must be updated after teleporting
         
         AABB activePlayerBB = ((IEEntity) player).ip_getActiveCollisionBox(playerBB);
@@ -255,7 +253,7 @@ public abstract class MixinServerGamePacketListenerImpl implements IEServerPlayN
         }
         
         Iterable<VoxelShape> newBBCollisions =
-            level.getCollisions(this.player, activeNewBB.deflate(1.0E-5F));
+            level.getPreMoveCollisions(this.player, activeNewBB.deflate(1.0E-5F), playerBB.getBottomCenter());
         
         VoxelShape activePlayerBBShape = Shapes.create(activePlayerBB.deflate(1.0E-5F));
         
@@ -285,7 +283,7 @@ public abstract class MixinServerGamePacketListenerImpl implements IEServerPlayN
         method = "handleAcceptTeleportPacket",
         at = @At(
             value = "INVOKE",
-            target = "Lnet/minecraft/server/level/ServerPlayer;absMoveTo(DDDFF)V"
+            target = "Lnet/minecraft/server/level/ServerPlayer;absSnapTo(DDDFF)V"
         )
     )
     private void onHandleAcceptTeleportPacket(
@@ -302,17 +300,17 @@ public abstract class MixinServerGamePacketListenerImpl implements IEServerPlayN
                 ip_dimOfAwaitingPosition, awaitingPositionFromClient
             );
             
-            ServerLevel destWorld = player.server.getLevel(ip_dimOfAwaitingPosition);
+            ServerLevel destWorld = player.level().getServer().getLevel(ip_dimOfAwaitingPosition);
             
             if (destWorld == null) {
                 LOGGER.error(
                     "[ImmPtl] Cannot find destination world {}",
-                    ip_dimOfAwaitingPosition.location()
+                    ip_dimOfAwaitingPosition.identifier()
                 );
                 return;
             }
             
-            ServerTeleportationManager.of(player.server)
+            ServerTeleportationManager.of(player.level().getServer())
                 .forceTeleportPlayer(
                     player, ip_dimOfAwaitingPosition,
                     awaitingPositionFromClient, false

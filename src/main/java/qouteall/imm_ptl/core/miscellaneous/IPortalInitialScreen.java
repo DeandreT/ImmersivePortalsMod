@@ -1,6 +1,5 @@
 package qouteall.imm_ptl.core.miscellaneous;
 
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.ImageWidget;
 import net.minecraft.client.gui.components.MultiLineTextWidget;
@@ -9,11 +8,17 @@ import net.minecraft.client.gui.layouts.HeaderAndFooterLayout;
 import net.minecraft.client.gui.layouts.LinearLayout;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import qouteall.imm_ptl.core.platform_specific.IPConfig;
 
 public class IPortalInitialScreen extends Screen {
     private static final int PAGE_NUM = 4;
+    // increase when the content changes, so that it is shown again (1: the content of this port)
+    public static final int CONTENT_VERSION = 1;
+
+    public static boolean shouldShow(IPConfig config) {
+        return !config.initialScreenShown || config.initialScreenVersion < CONTENT_VERSION;
+    }
     
     private final Runnable onClose;
     
@@ -27,14 +32,13 @@ public class IPortalInitialScreen extends Screen {
     private final MultiLineTextWidget contentWidget;
     
     private int currentPageIndex = 0;
-    
+
+    private @org.jetbrains.annotations.Nullable HeaderAndFooterLayout layout;
+
     public IPortalInitialScreen(Runnable onClose) {
         super(Component.empty());
         this.onClose = onClose;
-        
-        this.minecraft = Minecraft.getInstance();
-        this.font = minecraft.font;
-        
+
         prevButton = Button.builder(
             Component.translatable("iportal.initial_screen.prev"),
             button -> onPrevious()
@@ -52,14 +56,14 @@ public class IPortalInitialScreen extends Screen {
         
         iconWidget = ImageWidget.texture(
             30, 30,
-            ResourceLocation.fromNamespaceAndPath("immersive_portals", "icon.png"),
+            Identifier.fromNamespaceAndPath("immersive_portals", "icon.png"),
             30, 30
         );
         
         titleWidget = new StringWidget(
             Component.translatable("iportal.initial_screen.title"),
             font
-        ).alignCenter();
+        );
         
         contentWidget = new MultiLineTextWidget(
             Component.empty(),
@@ -78,6 +82,7 @@ public class IPortalInitialScreen extends Screen {
         if (currentPageIndex == PAGE_NUM - 1) {
             IPConfig config = IPConfig.getConfig();
             config.initialScreenShown = true;
+            config.initialScreenVersion = CONTENT_VERSION;
             config.saveConfigFile();
             
             onClose();
@@ -102,6 +107,11 @@ public class IPortalInitialScreen extends Screen {
                 "iportal.initial_screen.content." + newPageIndex
             )
         );
+
+        // the content's size changed: lay out again (centered)
+        if (layout != null) {
+            layout.arrangeElements();
+        }
     }
     
     @Override
@@ -112,9 +122,10 @@ public class IPortalInitialScreen extends Screen {
     @Override
     public void init() {
         contentWidget.setMaxWidth(this.width - 40);
-        pageNumberWidget.setWidth(50);
+        // StringWidget has no alignCenter() in 26.3 (text is drawn from its left edge),
+        // so size it to the widest page number text and add the spacing as cell padding.
+        pageNumberWidget.setWidth(font.width("%d / %d".formatted(PAGE_NUM, PAGE_NUM)));
         pageNumberWidget.setHeight(iKnowButton.getHeight());
-        pageNumberWidget.alignCenter();
         titleWidget.setHeight(iconWidget.getHeight());
         
         addRenderableWidget(prevButton);
@@ -124,8 +135,8 @@ public class IPortalInitialScreen extends Screen {
         addRenderableWidget(titleWidget);
         addRenderableWidget(contentWidget);
         
-        HeaderAndFooterLayout layout = new HeaderAndFooterLayout(
-            this, 60, 33
+        layout = new HeaderAndFooterLayout(
+            this, 50, 33
         );
         
         LinearLayout headerLayout = layout.addToHeader(LinearLayout.horizontal());
@@ -137,11 +148,12 @@ public class IPortalInitialScreen extends Screen {
         
         LinearLayout footerLayout = layout.addToFooter(LinearLayout.horizontal());
         footerLayout.addChild(prevButton, footerLayout.defaultCellSetting().padding(5));
-        footerLayout.addChild(pageNumberWidget, footerLayout.defaultCellSetting().padding(5));
+        footerLayout.addChild(
+            pageNumberWidget, footerLayout.defaultCellSetting().paddingHorizontal(15).paddingVertical(5)
+        );
         footerLayout.addChild(iKnowButton, footerLayout.defaultCellSetting().padding(5));
         
-        layout.arrangeElements();
-        
+        // sets the page's content and lays out with its size
         updateUiStatus(currentPageIndex);
     }
 }

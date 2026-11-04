@@ -1,6 +1,8 @@
 package qouteall.imm_ptl.core;
 
-import com.mojang.blaze3d.platform.GlUtil;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.renderpearl.api.device.DeviceInfo;
+import com.mojang.renderpearl.api.device.GpuDevice;
 import io.netty.buffer.Unpooled;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -11,7 +13,7 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.util.Tuple;
+import qouteall.q_misc_util.my_util.Tuple;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
@@ -177,7 +179,7 @@ public class IPMcHelper {
      * @return Whatever {@code func} returned.
      */
     public static <T> T withSwitchedContext(Level world, Supplier<T> func) {
-        if (world.isClientSide) {
+        if (world.isClientSide()) {
             return ClientWorldLoader.withSwitchedWorld((ClientLevel) world, func);
         }
         else {
@@ -205,7 +207,7 @@ public class IPMcHelper {
             return new Tuple<>(
                 BlockHitResult.miss(
                     end,
-                    Direction.getNearest(diff.x, diff.y, diff.z),
+                    Direction.getApproximateNearest(diff.x, diff.y, diff.z),
                     BlockPos.containing(end)
                 ),
                 portals
@@ -289,8 +291,7 @@ public class IPMcHelper {
         String command
     ) {
         return component.withStyle(
-            style -> style.withClickEvent(new ClickEvent(
-                ClickEvent.Action.RUN_COMMAND,
+            style -> style.withClickEvent(new ClickEvent.RunCommand(
                 command
             )).withUnderlined(true)
         );
@@ -312,7 +313,20 @@ public class IPMcHelper {
     
     @Environment(EnvType.CLIENT)
     public static boolean isNvidiaVideocard() {
-        return GlUtil.getVendor().toLowerCase().contains("nvidia");
+        GpuDevice device = RenderSystem.tryGetDevice();
+        DeviceInfo deviceInfo = device == null ? null : device.getDeviceInfo();
+        if (deviceInfo == null) {
+            return false;
+        }
+        return deviceInfo.vendorName().toLowerCase().contains("nvidia");
+    }
+    
+    // the OpenGL graphics backend (not Vulkan)
+    @Environment(EnvType.CLIENT)
+    public static boolean isOpenGlBackend() {
+        GpuDevice device = RenderSystem.tryGetDevice();
+        DeviceInfo deviceInfo = device == null ? null : device.getDeviceInfo();
+        return deviceInfo != null && deviceInfo.backendName().equals("OpenGL");
     }
     
     public static FriendlyByteBuf bytesToBuf(byte[] packetBytes) {

@@ -6,10 +6,6 @@ pluginManagement {
         }
         gradlePluginPortal()
 //        mavenLocal()
-        maven {
-            name = 'JitPack'
-            url = 'https://jitpack.io'
-        }
     }
 
 //    resolutionStrategy {
@@ -20,4 +16,11 @@ pluginManagement {
 //            }
 //        }
 //    }
+}
+
+// DimLib has no official 26.x release, so its port is kept in this repo and built from source.
+includeBuild('dimlib') {
+    dependencySubstitution {
+        substitute module('qouteall.dimlib:dimlib') using project(':')
+    }
 }

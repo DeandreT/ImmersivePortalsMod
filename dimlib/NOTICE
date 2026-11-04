@@ -1,0 +1,10 @@
+DimLib (unofficial Minecraft 26.3 port)
+
+Original work: DimLib by qouteall
+https://github.com/iPortalTeam/DimLib
+See LICENSE.
+
+This is a modified version. Changes (full list in the git history of the port/26.3 branch):
+- Ported to Minecraft 26.3, Fabric Loader 0.19 / Loom 1.18 (unobfuscated Minecraft), Java 25.
+- Per-dimension world borders, removed ChunkProgressListener, Identifier rename, Fabric networking API renames.
+- Renamed to "DimLib (Unofficial 26.3 Port)"; contact links point to this port.

@@ -12,7 +12,7 @@ import net.minecraft.SharedConstants;
 import net.minecraft.client.multiplayer.ClientChunkCache;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -95,16 +95,9 @@ public class O_O {
     
     @Nullable
     public static String getImmPtlModInfoUrl() {
-        String gameVersion = SharedConstants.getCurrentVersion().getName();
-        
-        if (O_O.isForge()) {
-            return "https://qouteall.fun/immptl_info/forge-%s.json".formatted(gameVersion);
-        }
-        else {
-            // it's in github pages
-            // https://github.com/qouteall/immptl_info
-            return "https://qouteall.fun/immptl_info/%s.json".formatted(gameVersion);
-        }
+        // This is an unofficial port. Don't fetch the official mod's update/incompatibility info
+        // (it's for the official releases, and it would send requests to the original author's server).
+        return null;
     }
     
     public static boolean isModLoadedWithinVersion(String modId, @Nullable String startVersion, @Nullable String endVersion) {
@@ -199,7 +192,7 @@ public class O_O {
     }
     
     @Nullable
-    public static ResourceLocation getModIconLocation(String modid) {
+    public static Identifier getModIconLocation(String modid) {
         String path = FabricLoader.getInstance().getModContainer(modid)
             .flatMap(c -> c.getMetadata().getIconPath(512))
             .orElse(null);

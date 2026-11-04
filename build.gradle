@@ -1,13 +1,10 @@
 plugins {
-    id 'fabric-loom' version '1.8-SNAPSHOT'
-
+    id 'net.fabricmc.fabric-loom' version "${loom_version}"
     id 'maven-publish'
-
-    id "me.modmuss50.mod-publish-plugin" version "0.3.5"
-    // https://modmuss50.github.io/mod-publish-plugin/
 }
 
-version = project.mod_version
+// CI passes -Pbuild_number so that every release has its own version
+version = project.mod_version + (project.hasProperty("build_number") ? "+build.${project.build_number}" : "")
 group = project.maven_group
 
 base {
@@ -15,176 +12,154 @@ base {
 }
 
 repositories {
-    flatDir {
-        dirs 'deps'
-    }
-}
-
-version = rootProject.mod_version
-
-repositories {
     mavenCentral()
-    mavenLocal()
-    maven {
-        name = 'JitPack'
-        url = 'https://jitpack.io'
-    }
 
     // cloth config
     maven { url "https://maven.shedaniel.me/" }
     maven { url "https://maven.terraformersmc.com/releases/" }
 
-    // for sodium
-    maven {
-        name = "Modrinth"
-        url = "https://api.modrinth.com/maven"
-        content {
+    // only ask Modrinth for Modrinth artifacts (and nobody else)
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "Modrinth"
+                url = "https://api.modrinth.com/maven"
+            }
+        }
+        filter {
             includeGroup "maven.modrinth"
         }
     }
-
-    // for parchment
-    maven {
-        url = "https://maven.parchmentmc.org"
-    }
-
-    // for cardinal components that gravity changer uses
-    maven {
-        name = 'Ladysnake'
-        url = 'https://maven.ladysnake.org/releases'
-    }
-
-    // geckolib, for testing with portal gun
-    maven { url 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/' }
-
-
 }
 
 loom {
     accessWidenerPath = file("src/main/resources/imm_ptl.accesswidener")
 }
 
+// Visual test harness (Fabric client gametest): ./gradlew runClientGameTest [-PipBackend=opengl|vulkan]
+// Screenshots of portals from fixed camera poses go to build/visual-test/<backend>/
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = "immersive_portals_gametest"
+        enableGameTests = false
+        enableClientGameTests = true
+        clearRunDirectory = true
+    }
+}
+def ipBackend = providers.gradleProperty("ipBackend").getOrElse("opengl")
+// -PshaderPack=<path to a shaderpack zip>: like -PwithShaders, with that pack instead of the test pack
+def shaderPackFile = providers.gradleProperty("shaderPack").isPresent() ? file(providers.gradleProperty("shaderPack").get()) : null
+def withShaders = providers.gradleProperty("withShaders").isPresent() || shaderPackFile != null
+loom {
+    runs {
+        clientGameTest {
+            programArgs "--graphicsBackend", ipBackend, "--width", "1280", "--height", "720"
+            // -PwithShaders: Iris with the test shaderpack (src/gametest/resources/immptl_test_shaderpack)
+            property "imm_ptl.visualTest.shaders", withShaders.toString()
+            property "imm_ptl.visualTest.shaderpack", shaderPackFile != null ? shaderPackFile.absolutePath : ""
+            property "imm_ptl.featureTest.out", file("build/feature-test").absolutePath
+            // -Pimm_ptl.<...>=<...> on the gradle command line (e.g. -Pimm_ptl.featureTest.skip=true) is passed to the
+            // game as a system property. (Not -D: the gradle daemon keeps those for later builds.)
+            project.properties.each { k, v ->
+                if (k.toString().startsWith("imm_ptl.")) {
+                    property k.toString(), v.toString()
+                }
+            }
+            // -Pperf: run the portal rendering benchmark (PerfBenchmark) and append to build/perf/results.csv
+            property "imm_ptl.perf", providers.gradleProperty("perf").isPresent().toString()
+            property "imm_ptl.perf.out", file("build/perf").absolutePath
+            property "imm_ptl.perf.label", ipBackend + (providers.gradleProperty("withSodium").isPresent() ? "-sodium" : "") + (providers.gradleProperty("perfLabel").isPresent() ? "-" + providers.gradleProperty("perfLabel").get() : "")
+            property "imm_ptl.visualTest.out", file("build/visual-test/" + ipBackend + (shaderPackFile != null ? "-pack-" + shaderPackFile.name.replaceAll(/\.zip$/, "") : withShaders ? "-shaders" : providers.gradleProperty("withIris").isPresent() ? "-iris" : providers.gradleProperty("withPackMods").isPresent() ? "-packmods" : providers.gradleProperty("withSodium").isPresent() ? "-sodium" : "")).absolutePath
+        }
+    }
+}
+
+// TODO(26.3): Iris/Gravity Changer compat is not ported yet.
+// These files reference those mods directly and are left out until then.
+sourceSets.main.java {
+    exclude 'qouteall/imm_ptl/core/compat/mixin/flywheel/**'
+    exclude 'qouteall/imm_ptl/core/compat/mixin/cardinal_comp/**'
+exclude 'qouteall/imm_ptl/core/compat/OnGravityChangerPresent.java'
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
 
-    mappings loom.layered() {
-        officialMojangMappings() {
-            setNameSyntheticMembers(false)
-        }
-        parchment("org.parchmentmc.data:parchment-1.21:2024.07.28")
-    }
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-
-    modImplementation("net.fabricmc.fabric-api:fabric-api:${project.fabric_version}") {
+    implementation("net.fabricmc.fabric-api:fabric-api:${project.fabric_version}") {
         exclude module: "fabric-gametest-api-v1"
         // for now, the gametest module makes client unable to login dev env server
     }
 
-    modApi("me.shedaniel.cloth:cloth-config-fabric:${cloth_config_version}") {
+    api("me.shedaniel.cloth:cloth-config-fabric:${cloth_config_version}") {
         exclude(group: "net.fabricmc.fabric-api")
     }
     include "me.shedaniel.cloth:cloth-config-fabric:${cloth_config_version}"
 
-    modCompileOnly "maven.modrinth:modmenu:${modmenu_version}"
-    modLocalRuntime "maven.modrinth:modmenu:${modmenu_version}"
+    compileOnly "maven.modrinth:modmenu:${modmenu_version}"
+    localRuntime "maven.modrinth:modmenu:${modmenu_version}"
 
-    modCompileOnly "${project.sodium_path}"
+    // Sodium compatibility: compiled against; in dev, run with it via -PwithSodium
+    compileOnly "maven.modrinth:sodium:${sodium_version}"
+    compileOnly "maven.modrinth:iris:${iris_version}"
+    gametestCompileOnly "maven.modrinth:iris:${iris_version}"
+    if (providers.gradleProperty("withSodium").isPresent() || providers.gradleProperty("withIris").isPresent() || withShaders
+        || providers.gradleProperty("withPackMods").isPresent()) {
+        localRuntime "maven.modrinth:sodium:${sodium_version}"
+    }
+    // -PwithPackMods: also mods that most modpacks have (compatibility check), with Sodium.
+    // Modrinth version ids for 26.3 Fabric.
+    if (providers.gradleProperty("withPackMods").isPresent()) {
+        localRuntime "maven.modrinth:lithium:xS0Q8LSi"
+        localRuntime "maven.modrinth:ferrite-core:d5ddUdiB"
+        localRuntime "maven.modrinth:entityculling:F4loCvYt"
+        localRuntime "maven.modrinth:xaeros-minimap:B2aG1aya"
+        localRuntime "maven.modrinth:c2me-fabric:FXjQDzq7"
+        localRuntime "maven.modrinth:immediatelyfast:3MP9UR23"
+    }
+    // Iris compatibility: in dev, run with it via -PwithIris (implies Sodium)
+    if (providers.gradleProperty("withIris").isPresent() || withShaders) {
+        localRuntime "maven.modrinth:iris:${iris_version}"
+    }
 
-    modCompileOnly "${project.iris_path}"
-
-    modCompileOnly("com.github.qouteall:GravityChanger:${gravity_changer_version}") {
+    api("qouteall.dimlib:dimlib:${dimlib_version}") {
         exclude(group: "net.fabricmc.fabric-api")
-        transitive(false)
     }
+    include("qouteall.dimlib:dimlib:${dimlib_version}")
 
-    modApi("com.github.iPortalTeam:DimLib:${dimlib_version}") {
-        exclude(group: "net.fabricmc.fabric-api")
-    }
-    include("com.github.iPortalTeam:DimLib:${dimlib_version}")
-
-    // put these into inner mod to reduce duplicate MC jar
-
-    if (project.enable_sodium.equals('true')) {
-        modLocalRuntime "${project.sodium_path}"
-    }
-
-    if (project.enable_iris.equals('true')) {
-        modLocalRuntime "${project.iris_path}"
-        implementation "org.anarres:jcpp:1.4.14" // for iris
-        implementation 'io.github.douira:glsl-transformer:2.0.0-pre13' // for iris
-        implementation 'org.antlr:antlr4-runtime:4.11.1' // for iris
-    }
-
-    if (project.enable_gravity_changer.equals('true')) {
-        modLocalRuntime("com.github.qouteall:GravityChanger:${gravity_changer_version}") {
-            exclude(group: "net.fabricmc.fabric-api")
-        }
-    }
-
-    if (project.enable_geckolib.equals('true')) {
-        // for testing portal gun using dev jar
-        modLocalRuntime('software.bernie.geckolib:geckolib-fabric-1.20:4.2') {
-            transitive(false)
-        }
-    }
-
-    if (project.enable_test_mod.equals('true')) {
-        fileTree(dir: 'deps', include: '*.jar').each {
-            String baseName = it.name.replace(".jar", "")
-            String version = "0.1.0"
-            int split = baseName.lastIndexOf('-')
-
-            if (split != -1) {
-                version = baseName.substring(split + 1)
-                baseName = baseName.substring(0, split)
-            }
-
-            String name = "testmod:${baseName}:${version}"
-
-            System.out.println("Found test mod: " + it.name.replace(".jar", "") + " -> " + name)
-
-            modImplementation name
-        }
-    }
     testImplementation(platform('org.junit:junit-bom:5.10.0'))
     testImplementation('org.junit.jupiter:junit-jupiter')
+    testRuntimeOnly('org.junit.platform:junit-platform-launcher')
 }
 
 processResources {
-    inputs.property "version", project.version
+    def props = ["version": project.version, "github_repo": project.github_repo]
+    inputs.properties props
 
     filesMatching("fabric.mod.json") {
-        expand "version": project.version
+        expand props
     }
 }
 
 tasks.withType(JavaCompile).configureEach {
-    it.options.release = 17
+    it.options.release = 25
+    it.options.compilerArgs += ["-Xmaxerrs", "10000"]
 }
 
 java {
-    // Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
-    // if it is present.
-    // If you remove this line, sources will not be generated.
     withSourcesJar()
 
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
 }
-
-
-// change the output file name
-remapJar {
-    afterEvaluate {
-        archiveFileName = "${project.archives_base_name}-${project.mod_version}-mc${project.minecraft_version}-fabric.jar"
-    }
-}
-
 
 jar {
+    def archivesName = project.base.archivesName.get()
+    archiveFileName = "${project.archives_base_name}-${project.version}-mc${project.minecraft_version}-fabric.jar"
     from("LICENSE") {
-        rename { "${it}_${project.base.archivesName.get()}"}
+        rename { "${it}_${archivesName}"}
     }
 }
 
@@ -196,54 +171,7 @@ publishing {
     }
 }
 
-// miscellaneous
-
-task printClasspath {
-    doLast {
-        // NOTE don't forget to exclude the submod dev jar
-        configurations.compileClasspath.each { println "\"" + (it.toString().replace("\\", "/")) + "\"," }
-    }
-}
-
-// Enable ZGC: -XX:+UseZGC
-
+// unit tests (the visual test is runClientGameTest)
 test {
     useJUnitPlatform()
-    testLogging {
-        events "passed", "skipped", "failed"
-    }
-}
-
-publishMods {
-    file = remapJar.archiveFile
-    changelog = file("changelog.md").text
-    type = ALPHA
-    modLoaders.add("fabric")
-
-    displayName = "v${project.mod_version}-mc${project.minecraft_version}"
-    version = "v${project.mod_version}-mc${project.minecraft_version}"
-
-    curseforge {
-        projectId = "332273"
-        accessToken = providers.environmentVariable("CURSEFORGE_TOKEN")
-        minecraftVersions.add(minecraft_version)
-
-        requires {
-            slug = "fabric-api"
-        }
-    }
-    modrinth {
-        projectId = "zJpHMkdD"
-        accessToken = providers.environmentVariable("MODRINTH_TOKEN")
-        minecraftVersions.add(minecraft_version)
-
-        requires {
-            slug = "fabric-api"
-        }
-    }
-    github {
-        repository = "iPortalTeam/ImmersivePortalsMod"
-        accessToken = providers.environmentVariable("GITHUB_TOKEN")
-        commitish = "${project.git_branch}"
-    }
 }

@@ -16,7 +16,7 @@ import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBundlePacket;
 import net.minecraft.network.protocol.game.GameProtocols;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -44,7 +44,7 @@ public class PacketRedirection {
     
     // most game packets sent are redirected, so that payload id will be used very frequently
     // use a short id to reduce packet size
-    public static final ResourceLocation payloadId =
+    public static final Identifier payloadId =
         McHelper.newResourceLocation("i:r");
     
     private static final ThreadLocal<ResourceKey<Level>> serverPacketRedirection =
@@ -61,7 +61,7 @@ public class PacketRedirection {
         ThreadLocal.withInitial(() -> null);
     
     public static void init() {
-        PayloadTypeRegistry.playS2C().register(Payload.TYPE, Payload.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(Payload.TYPE, Payload.CODEC);
     }
     
     public static void withForceRedirect(ServerLevel world, Runnable func) {
@@ -119,7 +119,7 @@ public class PacketRedirection {
         else {
             serverPlayNetworkHandler.send(
                 createRedirectedMessage(
-                    serverPlayNetworkHandler.player.server,
+                    serverPlayNetworkHandler.player.level().getServer(),
                     dimension,
                     packet
                 )
@@ -178,7 +178,7 @@ public class PacketRedirection {
         ResourceKey<Level> dimension,
         Packet<ClientGamePacketListener> packet
     ) {
-        player.connection.send(createRedirectedMessage(player.server, dimension, packet));
+        player.connection.send(createRedirectedMessage(player.level().getServer(), dimension, packet));
     }
     
     // Note this doesn't consider bundle packet

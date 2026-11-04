@@ -17,7 +17,6 @@ public interface IEClientWorld {
     
     void ip_setGlobalPortals(List<Portal> arg);
     
-    void ip_resetWorldRendererRef();
     
     EntityTickList ip_getEntityList();
     
@@ -28,4 +27,10 @@ public interface IEClientWorld {
     BlockStatePredictionHandler ip_getBlockStatePredictionHandler();
     
     void ip_setTickRateManager(TickRateManager cond);
+    
+    /**
+     * The extra extractors of this level (portal views of other places of the dimension,
+     * see DimensionRenderHelper.selectForView). The level forwards block and section changes to them too.
+     */
+    void ip_setExtraExtractors(java.util.List<net.minecraft.client.renderer.extract.LevelExtractor> extractors);
 }

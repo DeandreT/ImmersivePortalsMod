@@ -30,7 +30,6 @@
   "imm_ptl.finished_clearing_border": "ボーダーの削除を完了。 この変更はクライアントに反映していません。確認する際はもう一度入り直してください。",
   "imm_ptl.needs_pehkui": "Pehkuiが導入されていないため、エンティティの大きさは変化していません。",
   "imm_ptl.dim_stack_initialized": "[Immersive Portals] ディメンションの多層構造が初期化されました。",
-  "imm_ptl.inform_wiki": "[Immersive Portals] ポータルの設定方法はwikiを参照してください。",
   "imm_ptl.portal_helper_tooltip": "2つの閉じた枠を作成し、火をつけてください。",
   "imm_ptl.incompatible_shape": "[Immersive Portals] 形状が正しくないため、従来型のポータルを変換できませんでした。",
   "imm_ptl.enable_nether_portal_overlay": "ネザーポータルの重なりを有効化",
@@ -98,7 +97,6 @@
   "imm_ptl.command_desc.long_reach": "Pehkuiが必要です",
   "imm_ptl.command.goback": "戻る",
   "imm_ptl.command_desc.goback": "最後に使用したポータルに帰還する",
-  "imm_ptl.command.show_wiki": "Immersive Portals Wikiを参照する",
   "imm_ptl.command_desc.show_wiki": "Immersive Portalsによる素敵な新要素を発見しましょう",
   "imm_ptl.command.accelerate50": "加速する：50",
   "imm_ptl.command_desc.accelerate50": "プレイヤーの向いている方向にプレイヤーを加速します。",
@@ -163,9 +161,7 @@
   "imm_ptl.new_version_available": "A new version of Immersive Portals mod is available: %s. It's recommended to use the new version. Download: ",
   "imm_ptl.disable_update_check": "Disable update check",
   "imm_ptl.update_check_disabled": "Update check disabled",
-  "imm_ptl.severely_incompatible": "WARNING: Immersive Portals mod is incompatible with mod %1$s(%2$s). Major issues will occur. You should uninstall one of the two mods. (If the two mods become compatible now, report it to qouteall.)",
   "imm_ptl.severely_incompatible_within_version": "WARNING: Immersive Portals mod is incompatible with mod %1$s(%2$s) version %3$s. Major issues will occur. You should install another version of %1$s",
-  "imm_ptl.incompatible": "WARNING: Immersive Portals mod maybe has compatibility issues with mod %1$s(%2$s). If you are sure that two mods become compatible again, report to qouteall. ",
   "imm_ptl.no_place_to_generate_portal": "Cannot find space to place the other-side portal. Try lighting a smaller portal.",
   "imm_ptl.sculpted": "Portal Sculpted. Area Reduced: %s  Area Before: %s  Area After: %s",
   "imm_ptl.sculpting_in_progress": "Running portal sculpting...",
@@ -262,6 +258,6 @@
   "imm_ptl.quilt_warning": "You are using Immersive Portals mod on Quilt. The Fabric version of Immersive Portals mod is designed for Fabric and may malfunction on Quilt. ",
   "imm_ptl.mod_patch_version_mismatch": "The server's Immersive Portals mod version (%s) does not match the client's (%s). It's recommended to upgrade both client and server's Immersive Portals mod to latest.",
   "imm_ptl.mod_major_minor_version_mismatch": "The server's Immersive Portals mod version (%s) is incompatible with client's Immersive Portals mod version (%s).\nIt's recommended to upgrade both client and server's Immersive Portals mod to the latest version.\nIf you want to connect without using another version of Immersive Portals, turn on 'Tolerant version mismatch with server' in the mod settings (you need to install Mod Menu to access the settings).",
-  "imm_ptl.server_missing_immptl": "You logged into a server that does not install Immersive Portals mod. Immersive portals mod is designed to work with the server that installs it. All Immersive Portals functionality will not work here. And other issue may arise. It's recommended to log into this server without Immersive Portals.",
+  "imm_ptl.server_missing_immptl": "You logged into a server that does not install Immersive Portals mod. Immersive Portals mod is designed to work with the server that installs it. All Immersive Portals functionality will not work here. And other issue may arise. It's recommended to log into this server without Immersive Portals.",
   "imm_ptl.put_this_in_the_end_to_avoid_editing_trailing_comma": ""
 }

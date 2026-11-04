@@ -5,7 +5,7 @@ import net.minecraft.client.multiplayer.ClientChunkCache;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.multiplayer.prediction.BlockStatePredictionHandler;
-import net.minecraft.client.renderer.LevelRenderer;
+import net.minecraft.client.renderer.extract.LevelExtractor;
 import net.minecraft.core.Holder;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.TickRateManager;
@@ -19,6 +19,8 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
+import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -60,9 +62,6 @@ public abstract class MixinClientLevel implements IEClientWorld {
     private Minecraft minecraft;
     
     @Mutable
-    @Shadow
-    @Final
-    private LevelRenderer levelRenderer;
     
     @Shadow
     @Final
@@ -93,6 +92,52 @@ public abstract class MixinClientLevel implements IEClientWorld {
         portal_globalPortals = arg;
     }
     
+    @Unique
+    private List<LevelExtractor> ip_extraExtractors = List.of();
+    
+    @Override
+    public void ip_setExtraExtractors(List<LevelExtractor> extractors) {
+        ip_extraExtractors = extractors;
+    }
+    
+    // the level only notifies its own extractor; also notify the extra view extractors of this level
+    @Inject(method = "sendBlockUpdated", at = @At("TAIL"))
+    private void onSendBlockUpdated(
+        net.minecraft.core.BlockPos pos, net.minecraft.world.level.block.state.BlockState old,
+        net.minecraft.world.level.block.state.BlockState current, int updateFlags, CallbackInfo ci
+    ) {
+        for (LevelExtractor extractor : ip_extraExtractors) {
+            extractor.blockChanged(pos, updateFlags);
+        }
+    }
+    
+    @Inject(method = "setBlocksDirty", at = @At("TAIL"))
+    private void onSetBlocksDirty(
+        net.minecraft.core.BlockPos pos, net.minecraft.world.level.block.state.BlockState oldState,
+        net.minecraft.world.level.block.state.BlockState newState, CallbackInfo ci
+    ) {
+        for (LevelExtractor extractor : ip_extraExtractors) {
+            extractor.setBlockDirty(pos, oldState, newState);
+        }
+    }
+    
+    @Inject(method = "setSectionDirtyWithNeighbors", at = @At("TAIL"))
+    private void onSetSectionDirtyWithNeighbors(int chunkX, int chunkY, int chunkZ, CallbackInfo ci) {
+        for (LevelExtractor extractor : ip_extraExtractors) {
+            extractor.setSectionDirtyWithNeighbors(chunkX, chunkY, chunkZ);
+        }
+    }
+    
+    @Inject(method = "setSectionRangeDirty", at = @At("TAIL"))
+    private void onSetSectionRangeDirty(
+        int minSectionX, int minSectionY, int minSectionZ, int maxSectionX, int maxSectionY, int maxSectionZ,
+        CallbackInfo ci
+    ) {
+        for (LevelExtractor extractor : ip_extraExtractors) {
+            extractor.setSectionRangeDirty(minSectionX, minSectionY, minSectionZ, maxSectionX, maxSectionY, maxSectionZ);
+        }
+    }
+    
     //use my client chunk manager
     @Inject(
         method = "<init>",
@@ -100,8 +145,8 @@ public abstract class MixinClientLevel implements IEClientWorld {
     )
     void onConstructed(
         ClientPacketListener clientPacketListener, ClientLevel.ClientLevelData clientLevelData,
-        ResourceKey resourceKey, Holder holder, int loadDistance, int j, Supplier supplier,
-        LevelRenderer levelRenderer, boolean bl, long l, CallbackInfo ci
+        ResourceKey resourceKey, Holder holder, int loadDistance, int simulationDistance,
+        LevelExtractor levelExtractor, boolean isDebug, long biomeZoomSeed, int seaLevel, CallbackInfo ci
     ) {
         ClientLevel clientWorld = (ClientLevel) (Object) this;
         ClientChunkCache myClientChunkManager =
@@ -147,7 +192,7 @@ public abstract class MixinClientLevel implements IEClientWorld {
     @Inject(method = "Lnet/minecraft/client/multiplayer/ClientLevel;toString()Ljava/lang/String;", at = @At("HEAD"), cancellable = true)
     private void onToString(CallbackInfoReturnable<String> cir) {
         ClientLevel this_ = (ClientLevel) (Object) this;
-        cir.setReturnValue("ClientWorld " + this_.dimension().location());
+        cir.setReturnValue("ClientWorld " + this_.dimension().identifier());
     }
     
     @Inject(
@@ -159,10 +204,6 @@ public abstract class MixinClientLevel implements IEClientWorld {
         ((IEEntity) entity).ip_tickCollidingPortal();
     }
     
-    @Override
-    public void ip_resetWorldRendererRef() {
-        levelRenderer = null;
-    }
     
     @Override
     public EntityTickList ip_getEntityList() {

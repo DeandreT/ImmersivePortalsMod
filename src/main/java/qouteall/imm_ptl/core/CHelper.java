@@ -3,7 +3,7 @@ package qouteall.imm_ptl.core;
 import com.mojang.logging.LogUtils;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.Util;
+import com.mojang.blaze3d.Blaze3D;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ConfirmLinkScreen;
 import net.minecraft.client.gui.screens.Screen;
@@ -11,7 +11,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
@@ -44,7 +44,7 @@ public class CHelper {
     
     public static PlayerInfo getClientPlayerListEntry() {
         return Minecraft.getInstance().getConnection().getPlayerInfo(
-            Minecraft.getInstance().player.getGameProfile().getId()
+            Minecraft.getInstance().player.getGameProfile().id()
         );
     }
     
@@ -91,7 +91,7 @@ public class CHelper {
     }
     
     public static void printChat(Component text) {
-        Minecraft.getInstance().gui.getChat().addMessage(text);
+        Minecraft.getInstance().gui.hud.getChat().addClientSystemMessage(text);
     }
     
     public static void openLinkConfirmScreen(
@@ -99,24 +99,27 @@ public class CHelper {
         String link
     ) {
         Minecraft client = Minecraft.getInstance();
-        client.setScreen(new ConfirmLinkScreen(
+        URI uri;
+        try {
+            uri = new URI(link);
+        }
+        catch (URISyntaxException e) {
+            e.printStackTrace();
+            return;
+        }
+        client.gui.setScreen(new ConfirmLinkScreen(
             (result) -> {
                 if (result) {
-                    try {
-                        Util.getPlatform().openUri(new URI(link));
-                    }
-                    catch (URISyntaxException e) {
-                        e.printStackTrace();
-                    }
+                    Blaze3D.openUri(uri);
                 }
-                client.setScreen(parent);
+                client.gui.setScreen(parent);
             },
-            link, true
+            uri, true
         ));
     }
     
     public static Vec3 getCurrentCameraPos() {
-        return Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        return Minecraft.getInstance().gameRenderer.mainCamera().position();
     }
     
     public static Iterable<Entity> getWorldEntityList(Level world) {
@@ -153,10 +156,10 @@ public class CHelper {
      * If still missing, return null.
      */
     @Nullable
-    public static ResourceLocation getDimensionIconPath(ResourceKey<Level> dimension) {
-        ResourceLocation dimensionId = dimension.location();
+    public static Identifier getDimensionIconPath(ResourceKey<Level> dimension) {
+        Identifier dimensionId = dimension.identifier();
         
-        ResourceLocation dimIconPath = ResourceLocation.fromNamespaceAndPath(
+        Identifier dimIconPath = Identifier.fromNamespaceAndPath(
             dimensionId.getNamespace(),
             "textures/dimension/" + dimensionId.getPath() + ".png"
         );
@@ -166,13 +169,13 @@ public class CHelper {
         if (resource.isEmpty()) {
             LOGGER.info("Cannot load texture {}", dimIconPath);
             
-            ResourceLocation modIconLocation = O_O.getModIconLocation(dimensionId.getNamespace());
+            Identifier modIconLocation = O_O.getModIconLocation(dimensionId.getNamespace());
             
             if (modIconLocation == null) {
                 return null;
             }
             
-            ResourceLocation modIconPath = McHelper.newResourceLocation(
+            Identifier modIconPath = McHelper.newResourceLocation(
                 modIconLocation.getNamespace(),
                 modIconLocation.getPath()
             );

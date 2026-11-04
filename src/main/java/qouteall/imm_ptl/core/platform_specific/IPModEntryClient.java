@@ -11,8 +11,9 @@ import qouteall.imm_ptl.core.IPGlobal;
 import qouteall.imm_ptl.core.IPMcHelper;
 import qouteall.imm_ptl.core.IPModMainClient;
 import qouteall.imm_ptl.core.compat.IPModInfoChecking;
-import qouteall.imm_ptl.core.compat.iris_compatibility.ExperimentalIrisPortalRenderer;
 import qouteall.imm_ptl.core.compat.iris_compatibility.IrisInterface;
+import qouteall.imm_ptl.core.compat.iris_compatibility.OnIrisPresent;
+import qouteall.imm_ptl.core.compat.sodium_compatibility.OnSodiumPresent;
 import qouteall.imm_ptl.core.compat.sodium_compatibility.SodiumInterface;
 import qouteall.imm_ptl.core.portal.BreakableMirror;
 import qouteall.imm_ptl.core.portal.EndPortalEntity;
@@ -73,7 +74,8 @@ public class IPModEntryClient implements ClientModInitializer {
         if (isSodiumPresent) {
             Helper.log("Sodium is present");
             
-            SodiumInterface.invoker = new SodiumInterface.OnSodiumPresent();
+
+            SodiumInterface.invoker = new OnSodiumPresent();
             
             // Sodium compat is pretty ok now. No warning needed.
 //            IPGlobal.clientTaskList.addTask(MyTaskList.oneShotTask(() -> {
@@ -91,9 +93,9 @@ public class IPModEntryClient implements ClientModInitializer {
         
         if (FabricLoader.getInstance().isModLoaded("iris")) {
             Helper.log("Iris is present");
-            IrisInterface.invoker = new IrisInterface.OnIrisPresent();
-            ExperimentalIrisPortalRenderer.init();
-            
+
+            IrisInterface.invoker = new OnIrisPresent();
+
             IPGlobal.CLIENT_TASK_LIST.addTask(MyTaskList.oneShotTask(() -> {
                 if (IPConfig.getConfig().shouldDisplayWarning("iris")) {
                     CHelper.printChat(

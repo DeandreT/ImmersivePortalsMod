@@ -4,7 +4,7 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -188,8 +188,8 @@ public class DimStackScreen extends Screen {
             ),
             GuiHelper.blankSpace(5),
             new GuiHelper.LayoutElement(false, 1, (from, to) -> {
-                dimListWidget.setSize(width, to - from);
-                dimListWidget.setPosition(0, from);
+                // (also positions the rows; the list was created before the screen had a size)
+                dimListWidget.updateSizeAndPosition(width, to - from, 0, from);
             }),
             GuiHelper.blankSpace(5),
             new GuiHelper.LayoutElement(true, 20, (from, to) -> {
@@ -255,15 +255,15 @@ public class DimStackScreen extends Screen {
     }
     
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
+    public void extractRenderState(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTick) {
+        super.extractRenderState(guiGraphics, mouseX, mouseY, partialTick);
         
         if (isEnabled) {
-            dimListWidget.render(guiGraphics, mouseX, mouseY, partialTick);
+            dimListWidget.extractRenderState(guiGraphics, mouseX, mouseY, partialTick);
         }
         
         Font font = Minecraft.getInstance().font;
-        guiGraphics.drawString(
+        guiGraphics.text(
             font, this.title,
             20, 10, -1
         );
@@ -301,7 +301,7 @@ public class DimStackScreen extends Screen {
         
         int insertingPosition = position + 1;
         
-        Minecraft.getInstance().setScreen(
+        Minecraft.getInstance().gui.setScreen(
             new SelectDimensionScreen(
                 this,
                 dimensionType -> {
@@ -333,7 +333,7 @@ public class DimStackScreen extends Screen {
             return;
         }
         
-        Minecraft.getInstance().setScreen(new DimStackEntryEditScreen(
+        Minecraft.getInstance().gui.setScreen(new DimStackEntryEditScreen(
             this, selected,
             () -> {
                 int newlyChangingEntryIndex = dimListWidget.children().indexOf(selected);

@@ -17,7 +17,7 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.common.ClientCommonPacketListener;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
@@ -33,9 +33,14 @@ import qouteall.q_misc_util.dimension.DimensionIntId;
 public class MiscNetworking {
     private static final Logger LOGGER = LogUtils.getLogger();
     
+    /**
+     * @param seaLevelTag dimension id to sea level. Vanilla only tells the client the sea level of the dimension
+     *                    it's in; ImmPtl's client worlds of other dimensions use this.
+     */
     public static record DimIdSyncPacket(
         CompoundTag dimIntIdTag,
-        CompoundTag dimTypeTag
+        CompoundTag dimTypeTag,
+        CompoundTag seaLevelTag
     ) implements CustomPacketPayload {
         public static final CustomPacketPayload.Type<DimIdSyncPacket> TYPE =
             new CustomPacketPayload.Type<>(
@@ -52,34 +57,37 @@ public class MiscNetworking {
             CompoundTag dimIntIdTag = rec.toTag(dim -> true);
             
             RegistryAccess registryManager = server.registryAccess();
-            Registry<DimensionType> dimensionTypes = registryManager.registryOrThrow(Registries.DIMENSION_TYPE);
+            Registry<DimensionType> dimensionTypes = registryManager.lookupOrThrow(Registries.DIMENSION_TYPE);
             
             CompoundTag dimIdToDimTypeIdTag = new CompoundTag();
+            CompoundTag seaLevelTag = new CompoundTag();
             for (ServerLevel world : server.getAllLevels()) {
+                seaLevelTag.putInt(world.dimension().identifier().toString(), world.getSeaLevel());
+
                 ResourceKey<Level> dimId = world.dimension();
                 
                 DimensionType dimType = world.dimensionType();
-                ResourceLocation dimTypeId = dimensionTypes.getKey(dimType);
+                Identifier dimTypeId = dimensionTypes.getKey(dimType);
                 
                 if (dimTypeId == null) {
-                    LOGGER.error("Cannot find dimension type for {}", dimId.location());
+                    LOGGER.error("Cannot find dimension type for {}", dimId.identifier());
                     LOGGER.error(
                         "Registered dimension types {}", dimensionTypes.keySet()
                     );
-                    dimTypeId = BuiltinDimensionTypes.OVERWORLD.location();
+                    dimTypeId = BuiltinDimensionTypes.OVERWORLD.identifier();
                 }
                 
                 dimIdToDimTypeIdTag.putString(
-                    dimId.location().toString(),
+                    dimId.identifier().toString(),
                     dimTypeId.toString()
                 );
             }
             
-            return new DimIdSyncPacket(dimIntIdTag, dimIdToDimTypeIdTag);
+            return new DimIdSyncPacket(dimIntIdTag, dimIdToDimTypeIdTag, seaLevelTag);
         }
         
         public static Packet<ClientCommonPacketListener> createPacket(MinecraftServer server) {
-            return ServerPlayNetworking.createS2CPacket(
+            return ServerPlayNetworking.createClientboundPacket(
                 DimIdSyncPacket.createFromServer(server)
             );
         }
@@ -87,13 +95,15 @@ public class MiscNetworking {
         public void write(FriendlyByteBuf buf) {
             buf.writeNbt(dimIntIdTag);
             buf.writeNbt(dimTypeTag);
+            buf.writeNbt(seaLevelTag);
         }
         
         public static DimIdSyncPacket read(FriendlyByteBuf buf) {
             CompoundTag idMapTag = buf.readNbt();
             CompoundTag typeTag = buf.readNbt();
+            CompoundTag seaLevelTag = buf.readNbt();
             
-            return new DimIdSyncPacket(idMapTag, typeTag);
+            return new DimIdSyncPacket(idMapTag, typeTag, seaLevelTag);
         }
         
         public void handle() {
@@ -104,12 +114,12 @@ public class MiscNetworking {
             ImmutableMap.Builder<ResourceKey<Level>, ResourceKey<DimensionType>> builder =
                 new ImmutableMap.Builder<>();
             
-            for (String key : dimTypeTag.getAllKeys()) {
+            for (String key : dimTypeTag.keySet()) {
                 ResourceKey<Level> dimId = ResourceKey.create(
                     Registries.DIMENSION,
                     McHelper.newResourceLocation(key)
                 );
-                String dimTypeId = dimTypeTag.getString(key);
+                String dimTypeId = dimTypeTag.getStringOr(key, "");
                 ResourceKey<DimensionType> dimType = ResourceKey.create(
                     Registries.DIMENSION_TYPE,
                     McHelper.newResourceLocation(dimTypeId)
@@ -119,6 +129,15 @@ public class MiscNetworking {
             
             var dimTypeMap = builder.build();
             ClientWorldLoader.dimIdToDimTypeId = dimTypeMap;
+
+            ImmutableMap.Builder<ResourceKey<Level>, Integer> seaLevels = new ImmutableMap.Builder<>();
+            for (String key : seaLevelTag.keySet()) {
+                seaLevels.put(
+                    ResourceKey.create(Registries.DIMENSION, McHelper.newResourceLocation(key)),
+                    seaLevelTag.getIntOr(key, 63)
+                );
+            }
+            ClientWorldLoader.dimIdToSeaLevel = seaLevels.build();
             LOGGER.info(
                 "Client accepted dimension type mapping {}",
                 dimTypeMap
@@ -142,7 +161,7 @@ public class MiscNetworking {
     }
     
     public static void init() {
-        PayloadTypeRegistry.playS2C().register(
+        PayloadTypeRegistry.clientboundPlay().register(
             DimIdSyncPacket.TYPE, DimIdSyncPacket.CODEC
         );
     }

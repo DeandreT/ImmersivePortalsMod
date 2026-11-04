@@ -1,10 +1,11 @@
 package qouteall.imm_ptl.peripheral.dim_stack;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractSelectionList;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.MouseButtonEvent;
 import org.jetbrains.annotations.Nullable;
 import qouteall.q_misc_util.Helper;
 
@@ -42,12 +43,12 @@ public class DimListWidget extends AbstractSelectionList<DimEntryWidget> {
     }
     
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
         if (type == Type.mainDimensionList && draggingCallback != null) {
             DimEntryWidget selected = getSelected();
         
             if (selected != null) {
-                DimEntryWidget mouseOn = getEntryAtPosition(mouseX, mouseY);
+                DimEntryWidget mouseOn = getEntryAtPosition(event.x(), event.y());
                 if (mouseOn != null) {
                     if (mouseOn != selected) {
                         int selectedIndex = children().indexOf(selected);
@@ -63,7 +64,7 @@ public class DimListWidget extends AbstractSelectionList<DimEntryWidget> {
             }
         }
         
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return super.mouseDragged(event, deltaX, deltaY);
     }
     
     @Override
@@ -78,12 +79,20 @@ public class DimListWidget extends AbstractSelectionList<DimEntryWidget> {
     }
     
     @Override
-    protected int getScrollbarPosition() {
-        return (width - ROW_WIDTH) / 2 + ROW_WIDTH;
-    }
-    
-    @Override
-    protected void renderListBackground(GuiGraphics guiGraphics) {
+    protected void extractListBackground(GuiGraphicsExtractor guiGraphics) {
         // don't render background
+    }
+
+    /**
+     * In 26.3 {@link #children()} is unmodifiable; edit a copy and replace the entries with it.
+     */
+    public void mutateEntries(java.util.function.Consumer<java.util.List<DimEntryWidget>> mutation) {
+        DimEntryWidget selected = getSelected();
+        java.util.List<DimEntryWidget> entries = new java.util.ArrayList<>(children());
+        mutation.accept(entries);
+        replaceEntries(entries);
+        if (selected != null && entries.contains(selected)) {
+            setSelected(selected);
+        }
     }
 }
