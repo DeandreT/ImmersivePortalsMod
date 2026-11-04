@@ -16,6 +16,7 @@ import qouteall.imm_ptl.core.ducks.IEGameRenderer;
 import qouteall.imm_ptl.core.ducks.IELevelExtractor_Invalidation;
 import qouteall.imm_ptl.core.ducks.IELevelRenderer_ViewGrid;
 import qouteall.imm_ptl.core.ducks.IEMinecraftClient;
+import qouteall.imm_ptl.core.IPGlobal;
 import qouteall.q_misc_util.Helper;
 
 import java.util.ArrayList;
@@ -53,9 +54,15 @@ public class DimensionRenderHelper {
     private long gridUsedFrame = -1;
     private static final int EXTRA_HELPER_IDLE_FRAMES = 600;
     private static final int MAX_EXTRA_HELPERS = 3;
+    // a dimension that the player isn't in and no portal has shown for this long gets its terrain data released
+    private static final long IDLE_RELEASE_NANOS = 30_000_000_000L;
     // a view camera less than this many sections from the edge of a grid doesn't use that grid
     private static final int GRID_MARGIN_SECTIONS = 4;
 
+
+    private long lastActiveNanos = System.nanoTime();
+    // the terrain data was released and has to be rebuilt before the next use, see releaseWhenIdle
+    private boolean terrainReleased = false;
 
     // the frame index at which the lightmap was last rendered, see RenderStates.frameIndex
     public long lightmapRenderedFrame = -1;
@@ -98,6 +105,7 @@ public class DimensionRenderHelper {
      * Extra helpers are released when they're not used for a while.
      */
     public DimensionRenderHelper selectForView(Vec3 cameraPos, boolean isPlayerDimension) {
+        ensureTerrainAvailable();
         SectionPos cameraSection = SectionPos.of(cameraPos);
         long frame = RenderStates.frameIndex;
 
@@ -336,6 +344,7 @@ public class DimensionRenderHelper {
         if (!isCurrent()) {
             levelRenderer.endFrame();
         }
+        releaseWhenIdle();
         for (DimensionRenderHelper extra : new ArrayList<>(extraHelpers)) {
             if (RenderStates.frameIndex - extra.lastUsedFrame > EXTRA_HELPER_IDLE_FRAMES) {
                 releaseExtraHelper(extra);
@@ -355,8 +364,37 @@ public class DimensionRenderHelper {
         }
     }
 
+    /**
+     * Rebuilds the terrain data after {@link #releaseWhenIdle}. Call before this helper's renderer is used.
+     * This is the state of a new renderer, so the next extraction creates what it needs.
+     */
+    public void ensureTerrainAvailable() {
+        lastActiveNanos = System.nanoTime();
+        if (terrainReleased) {
+            terrainReleased = false;
+            levelExtractor.allChanged();
+        }
+    }
+
+    /**
+     * The terrain GPU buffers and the section objects are only released with the renderer, so a dimension visited
+     * once would keep them. The renderer and extractor stay: others hold references to them (the ClientLevel does).
+     */
+    private void releaseWhenIdle() {
+        if (isCurrent()) {
+            lastActiveNanos = System.nanoTime();
+        }
+        else if (IPGlobal.releaseIdleRenderers && !terrainReleased
+            && System.nanoTime() - lastActiveNanos > IDLE_RELEASE_NANOS
+        ) {
+            levelRenderer.resetLevelRenderData();
+            terrainReleased = true;
+            Helper.log("Released the terrain data of idle dimension " + world.dimension().identifier());
+        }
+    }
+
     public void onAllChanged() {
-        if (!isCurrent()) {
+        if (!isCurrent() && !terrainReleased) {
             levelExtractor.allChanged();
         }
         for (DimensionRenderHelper extra : extraHelpers) {

@@ -130,6 +130,7 @@ public class ClientWorldLoader {
      * Used when the player changes dimension through a portal.
      */
     public static void switchClientRenderingTo(DimensionRenderHelper helper) {
+        helper.ensureTerrainAvailable();
         ((IEMinecraftClient) CLIENT).ip_setLevelRendererAndExtractor(
             helper.levelRenderer, helper.levelExtractor
         );

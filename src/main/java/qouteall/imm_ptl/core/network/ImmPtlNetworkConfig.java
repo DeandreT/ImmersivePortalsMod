@@ -273,6 +273,7 @@ public class ImmPtlNetworkConfig {
         
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
             onClientJoin();
+            qouteall.imm_ptl.core.miscellaneous.HeapTrimmer.trimNow();
         });
     }
     

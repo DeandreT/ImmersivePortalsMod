@@ -36,6 +36,8 @@ public class PortalViewTargetPool {
         }
     }
 
+    private static final int IDLE_EVICT_FRAMES = 600;
+
     private final List<Slot> slots = new ArrayList<>();
     private int frame = 0;
     private int used = 0;
@@ -43,12 +45,29 @@ public class PortalViewTargetPool {
     public void beginFrame() {
         frame++;
         used = 0;
+        evictWhenIdle();
         for (Slot slot : slots) {
             // a kept target that the last frame didn't use is free again
             if (slot.keeper != null && slot.usedFrame < frame - 1) {
                 slot.keeper = null;
             }
         }
+    }
+
+    /**
+     * Free the targets when no portal has been rendered for a while. Only all at once:
+     * the slot index is part of the textures and render types of {@link PortalSurfaceRendering}.
+     */
+    private void evictWhenIdle() {
+        if (slots.isEmpty()) {
+            return;
+        }
+        for (Slot slot : slots) {
+            if (frame - slot.usedFrame < IDLE_EVICT_FRAMES) {
+                return;
+            }
+        }
+        cleanUp();
     }
 
     /**

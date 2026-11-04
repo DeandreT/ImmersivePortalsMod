@@ -42,6 +42,10 @@ public class IPGlobal {
     public static int maxPortalLayer = 5;
     
     public static int indirectLoadingRadiusCap = 8;
+
+    public static boolean compactTerrainBuffers = true;
+    public static boolean trimJavaHeap = true;
+    public static boolean releaseIdleRenderers = true;
     
     public static boolean lagAttackProof = true;
     

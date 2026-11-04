@@ -57,6 +57,15 @@ public class IPConfig implements ConfigData {
     public boolean enableClientPerformanceAdjustment = true;
     @ConfigEntry.Category("client")
     @ConfigEntry.Gui.Tooltip
+    public boolean compactTerrainBuffers = true;
+    @ConfigEntry.Category("client")
+    @ConfigEntry.Gui.Tooltip
+    public boolean trimJavaHeap = true;
+    @ConfigEntry.Category("client")
+    @ConfigEntry.Gui.Tooltip
+    public boolean releaseIdleRenderers = true;
+    @ConfigEntry.Category("client")
+    @ConfigEntry.Gui.Tooltip
     public boolean reduceFarPortalUpdates = true;
 @ConfigEntry.Category("client")
     public boolean clientTolerantVersionMismatchWithServer = false;
@@ -207,6 +216,9 @@ indirectLoadingRadiusCap = Mth.clamp(indirectLoadingRadiusCap, 1, 32);
         IPGlobal.looseMovementCheck = looseMovementCheck;
         IPGlobal.pureMirror = pureMirror;
         IPGlobal.indirectLoadingRadiusCap = indirectLoadingRadiusCap;
+        IPGlobal.compactTerrainBuffers = compactTerrainBuffers;
+        IPGlobal.trimJavaHeap = trimJavaHeap;
+        IPGlobal.releaseIdleRenderers = releaseIdleRenderers;
         IPGlobal.netherPortalMode = netherPortalMode;
         IPGlobal.endPortalMode = endPortalMode;
         IPGlobal.reducedPortalRendering = reducedPortalRendering;

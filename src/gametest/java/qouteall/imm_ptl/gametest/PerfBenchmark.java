@@ -43,7 +43,14 @@ public class PerfBenchmark implements FabricClientGameTest {
             c.initialScreenShown = true;
             c.initialScreenVersion = qouteall.imm_ptl.core.miscellaneous.IPortalInitialScreen.CONTENT_VERSION;
             c.enableClientPerformanceAdjustment = false;
+            // -Pimm_ptl.perf.memoryOpts=false: compare with the memory optimizations off
+            if ("false".equals(System.getProperty("imm_ptl.perf.memoryOpts"))) {
+                c.compactTerrainBuffers = false;
+                c.trimJavaHeap = false;
+                c.releaseIdleRenderers = false;
+            }
             c.saveConfigFile();
+            c.onConfigChanged();
             if (mc.gui.screen() instanceof IPortalInitialScreen s) {
                 s.onClose();
             }

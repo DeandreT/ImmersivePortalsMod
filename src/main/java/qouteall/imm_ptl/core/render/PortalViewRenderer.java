@@ -426,6 +426,7 @@ public static boolean isCurrentViewMirrored() {
      */
     private static DimensionRenderHelper selectRenderHelper(ClientLevel destLevel, Vec3 cameraPos) {
         DimensionRenderHelper helper = ClientWorldLoader.getDimensionRenderHelper(destLevel.dimension());
+        helper.ensureTerrainAvailable();
         if (SodiumInterface.invoker.isSodiumPresent()) {
             return helper;
         }
