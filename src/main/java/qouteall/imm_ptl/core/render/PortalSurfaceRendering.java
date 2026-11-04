@@ -1,10 +1,15 @@
 package qouteall.imm_ptl.core.render;
 
+import com.mojang.blaze3d.ProjectionType;
+import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.renderpearl.api.pipeline.ColorTargetState;
 import com.mojang.renderpearl.api.pipeline.DepthStencilState;
 import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
@@ -12,10 +17,13 @@ import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.renderpearl.api.textures.FilterMode;
 import com.mojang.renderpearl.api.textures.GpuTexture;
 import com.mojang.renderpearl.api.textures.GpuTextureView;
+import it.unimi.dsi.fastutil.floats.FloatArrayList;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.BindGroupLayouts;
 import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.StagedVertexBuffer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.rendertype.PreparedRenderType;
 import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.TextureTransform;
@@ -24,10 +32,17 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4f;
+import org.joml.Matrix4fStack;
+import org.joml.Vector3f;
+import org.lwjgl.system.MemoryUtil;
+import qouteall.imm_ptl.core.compat.iris_compatibility.IrisInterface;
 import qouteall.imm_ptl.core.portal.Portal;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.OptionalDouble;
 
 /**
  * Draws a portal's surface, textured with the view that was rendered for it
@@ -58,6 +73,13 @@ public class PortalSurfaceRendering {
         return builder.build();
     }
 
+    private record DeferredSurface(Portal portal, RenderType renderType, Matrix4f pose) {}
+
+    private static final List<DeferredSurface> deferredSurfaces = new ArrayList<>();
+    // the transformation that the world pass drew with, see captureWorldTransformation
+    private static @Nullable Matrix4f worldModelView;
+    private static @Nullable GpuBufferSlice worldProjection;
+    private static @Nullable ProjectionType worldProjectionType;
     private static final List<RenderType> renderTypes = new ArrayList<>();
     // per target: the texture matrix that maps the drawing view's screen uv to the target's uv
     // (the views' crops and mirror flips, PortalViewCrop.samplingMatrix); set when the target is handed out
@@ -143,12 +165,140 @@ public class PortalSurfaceRendering {
             return;
         }
 
+        if (IrisInterface.invoker.isShaderpackInUse()) {
+            // a portal must not appear in the shadow map
+            if (IrisInterface.invoker.isRenderingShadowMap()) {
+                return;
+            }
+            deferredSurfaces.add(new DeferredSurface(portal, renderType, new Matrix4f(poseStack.last().pose())));
+        }
+
         submitNodeCollector.submitCustomGeometry(
             poseStack, renderType,
             (pose, buffer) -> outputPortalMesh(portal, pose.pose(), buffer)
         );
     }
     
+    /**
+     * For the depth to be the same in {@link #drawDeferredSurfaces}, it needs the transformation that the world pass
+     * drew with. It's not yet in place when the surface is submitted, and the pack changes it later.
+     * So it's read during the world pass.
+     */
+    public static void captureWorldTransformation() {
+        worldModelView = RenderSystem.getModelViewMatrixCopy();
+        worldProjection = RenderSystem.getProjectionMatrixBuffer();
+        worldProjectionType = RenderSystem.getProjectionType();
+    }
+
+    /**
+     * With a shaderpack, a view's target holds the pack's finished image. A surface drawn in the world pass is treated
+     * as an unlit block: the pack's lighting, bloom and tone mapping process that image a second time, which
+     * overexposes it. So the surface is drawn again on the pack's final image, which replaces the processed pixels.
+     * The world pass's surface is still needed, for its depth: this draw has the same depth, so it only passes where
+     * nothing nearer was drawn over the surface. Players, mobs, hands and glass in front of a portal stay on top
+     * (seen through glass, the portal is still processed by the pack). A portal in the view of another portal or a
+     * mirror doesn't get replaced yet, so it's still overexposed there.
+     * Called at the end of each view, before the view around it starts using its target.
+     */
+    public static void drawDeferredSurfaces() {
+        if (deferredSurfaces.isEmpty()) {
+            return;
+        }
+        if (worldModelView == null) {
+            deferredSurfaces.clear();
+            return;
+        }
+
+        int vertexCount = 0;
+        List<float[]> meshes = new ArrayList<>(deferredSurfaces.size());
+        for (DeferredSurface surface : deferredSurfaces) {
+            float[] mesh = createMesh(surface);
+            meshes.add(mesh);
+            vertexCount += mesh.length / 3;
+        }
+        if (vertexCount == 0) {
+            deferredSurfaces.clear();
+            return;
+        }
+
+        ByteBuffer vertices = MemoryUtil.memAlloc(vertexCount * 3 * Float.BYTES);
+        try {
+            for (float[] mesh : meshes) {
+                vertices.asFloatBuffer().put(mesh);
+                vertices.position(vertices.position() + mesh.length * Float.BYTES);
+            }
+            vertices.flip();
+            draw(vertices, meshes);
+        }
+        finally {
+            MemoryUtil.memFree(vertices);
+            deferredSurfaces.clear();
+        }
+    }
+
+    private static void draw(ByteBuffer vertices, List<float[]> meshes) {
+        RenderSystem.AutoStorageIndexBuffer indices = RenderSystem.getSequentialBuffer(PrimitiveTopology.TRIANGLES);
+        GpuBuffer indexBuffer = indices.getBuffer(vertices.remaining() / (3 * Float.BYTES));
+        RenderTarget target = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+        Matrix4fStack modelViewStack = RenderSystem.getModelViewStack();
+
+        try (GpuBuffer vertexBuffer = RenderSystem.getDevice().createBuffer(
+            () -> "ImmPtl portal surfaces", GpuBuffer.USAGE_VERTEX, vertices
+        )) {
+            RenderSystem.backupProjectionMatrix();
+            try {
+                int firstVertex = 0;
+                for (int i = 0; i < meshes.size(); i++) {
+                    DeferredSurface surface = deferredSurfaces.get(i);
+                    int count = meshes.get(i).length / 3;
+
+                    modelViewStack.pushMatrix();
+                    modelViewStack.set(worldModelView);
+                    PreparedRenderType prepared;
+                    try {
+                        prepared = surface.renderType().prepare();
+                    }
+                    finally {
+                        modelViewStack.popMatrix();
+                    }
+                    RenderSystem.setProjectionMatrix(worldProjection, worldProjectionType);
+
+                    try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(
+                        () -> "ImmPtl portal surface",
+                        target.getColorTextureView(), Optional.empty(),
+                        target.getDepthTextureView(), OptionalDouble.empty()
+                    )) {
+                        prepared.drawFromBuffer(new StagedVertexBuffer.ExecuteInfo(
+                            vertexBuffer, indexBuffer, indices.type(),
+                            firstVertex, 0, count, PrimitiveTopology.TRIANGLES
+                        ), pass);
+                    }
+                    firstVertex += count;
+                }
+            }
+            finally {
+                RenderSystem.restoreProjectionMatrix();
+            }
+        }
+    }
+
+    private static float[] createMesh(DeferredSurface surface) {
+        FloatArrayList result = new FloatArrayList();
+        Vector3f position = new Vector3f();
+        surface.portal().renderViewAreaMesh(
+            Vec3.ZERO,
+            (p0x, p0y, p0z, p1x, p1y, p1z, p2x, p2y, p2z) -> {
+                for (double[] p : new double[][]{{p0x, p0y, p0z}, {p1x, p1y, p1z}, {p2x, p2y, p2z}}) {
+                    surface.pose().transformPosition((float) p[0], (float) p[1], (float) p[2], position);
+                    result.add(position.x);
+                    result.add(position.y);
+                    result.add(position.z);
+                }
+            }
+        );
+        return result.toFloatArray();
+    }
+
     private static @Nullable RenderType getRenderTypeForPortal(Portal portal) {
         TextureTarget target = PortalViewRenderer.getViewTarget(portal);
         if (target == null) {
