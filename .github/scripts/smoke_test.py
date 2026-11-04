@@ -51,20 +51,21 @@ CLIENT_STAGE_TIMEOUT = 300
 CLIENT_SAMPLE_SECONDS = 20
 
 # Budgets for the mod's cost over a mod-free baseline, enforced by `compare`.
-MAX_SERVER_EXTRA_RSS_MB = 500
+MAX_SERVER_EXTRA_RSS_MB = 100
 MAX_SERVER_EXTRA_STARTUP_S = 30
 MAX_SERVER_IDLE_TICK_MS = 10
-MAX_CLIENT_RSS_MB = 3500
+MAX_CLIENT_EXTRA_RSS_MB = 100
 
 DATAPACK = {
-    "pack.mcmeta": json.dumps({"pack": {"pack_format": 48, "description": "smoke test"}}),
+    # data_major from version.json in the Minecraft jar.
+    "pack.mcmeta": json.dumps({"pack": {"min_format": 121, "max_format": 121, "description": "smoke test"}}),
     "data/minecraft/tags/function/load.json": json.dumps({"values": ["smoke:load"]}),
     "data/minecraft/tags/function/tick.json": json.dumps({"values": ["smoke:tick"]}),
     "data/smoke/function/load.mcfunction": """
-gamerule spawnRadius 0
-gamerule doDaylightCycle false
-gamerule doMobSpawning false
-gamerule fallDamage false
+gamerule respawn_radius 0
+gamerule advance_time false
+gamerule spawn_mobs false
+gamerule fall_damage false
 time set noon
 scoreboard objectives add smoke dummy
 forceload add -16 -16 15 15
@@ -93,10 +94,18 @@ execute if score #t smoke matches 800 run setblock 0 -21 0 minecraft:air
 execute as @a[tag=!smoke_crossed] at @s if dimension minecraft:the_nether run function smoke:crossed
 execute if score #d smoke matches 1.. run scoreboard players add #d smoke 1
 execute if score #d smoke matches 200 run say SMOKE_DONE
+execute if score #d smoke matches 900 run function smoke:return
+execute if score #d smoke matches 1200 run say SMOKE_BACK
 """,
     "data/smoke/function/place.mcfunction": """
 tp @s 0.5 -20 0.5 0 90
 tag @s add smoke_placed
+""",
+    # Long enough away for the overworld's idle renderer to be released (30 s).
+    "data/smoke/function/return.mcfunction": """
+setblock 0 -21 0 minecraft:glass
+execute as @a in minecraft:overworld run tp @s 0.5 -20 0.5 0 90
+say SMOKE_RETURN
 """,
     "data/smoke/function/crossed.mcfunction": """
 tag @s add smoke_crossed
@@ -105,14 +114,20 @@ scoreboard players set #d smoke 1
 """,
 }
 
+# What the official launcher passes, so that heap behaviour is what players get.
+LAUNCHER_JVM_ARGS = [
+    "-Xss1M", "-XX:+UnlockExperimentalVMOptions", "-XX:+UseG1GC", "-XX:G1NewSizePercent=20",
+    "-XX:G1ReservePercent=20", "-XX:MaxGCPauseMillis=50", "-XX:G1HeapRegionSize=32M",
+]
+
 CLIENT_OPTIONS = """\
 pauseOnLostFocus:false
 onboardAccessibility:false
 skipMultiplayerWarnings:true
 joinedFirstServer:true
 tutorialStep:none
-renderDistance:6
-simulationDistance:6
+renderDistance:{render_distance}
+simulationDistance:{render_distance}
 maxFps:60
 fov:0.5
 narrator:0
@@ -169,9 +184,7 @@ def fabric_api_jar(props, cache):
     return fetch(f"{FABRIC_MAVEN}/{path}", Path(cache) / "mods" / f"fabric-api-{version}.jar")
 
 
-def modrinth_jar(coordinate, cache):
-    # gradle.properties stores these as maven.modrinth:<slug>:<version>
-    _, slug, version = coordinate.split(":")
+def modrinth_jar(slug, version, cache):
     name = f"{slug}-{version}.jar"
     url = f"https://api.modrinth.com/maven/maven/modrinth/{slug}/{version}/{name}"
     return fetch(url, Path(cache) / "mods" / name)
@@ -185,8 +198,12 @@ def fresh_dir(path):
     return path
 
 
-def write_datapack(world):
+def write_datapack(world, with_portal):
     for rel, content in DATAPACK.items():
+        if not with_portal:
+            if rel.endswith("portal.mcfunction"):
+                continue
+            content = "".join(line for line in content.splitlines(True) if "immersive_portals" not in line)
         target = world / "datapacks" / "smoke" / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content.lstrip("\n"))
@@ -234,6 +251,66 @@ def stop_process(proc, timeout=60):
             proc.wait()
 
 
+def wants_portal(args):
+    return not (args.no_mod or args.no_portal)
+
+
+def jvm_profile(java, pid, work):
+    """Live heap and native memory of a JVM started with NativeMemoryTracking. Forces a full GC."""
+    jcmd = str(Path(java).parent / "jcmd")
+
+    def run(*command):
+        return subprocess.run([jcmd, str(pid), *command], check=True, capture_output=True, text=True, timeout=180).stdout
+
+    histogram = run("GC.class_histogram")
+    (Path(work) / "class-histogram.txt").write_text(histogram)
+    native = run("VM.native_memory", "summary")
+    (Path(work) / "native-memory.txt").write_text(native)
+
+    def committed_mb(section):
+        match = re.search(rf"-\s+{section} \(reserved=\d+KB, committed=(\d+)KB", native)
+        return int(match.group(1)) // 1024 if match else 0
+
+    rss_kb = int(re.search(r"VmRSS:\s+(\d+)", Path(f"/proc/{pid}/status").read_text()).group(1))
+    return {
+        "live_heap_mb": int(re.search(r"^Total\s+\d+\s+(\d+)", histogram, re.M).group(1)) // (1024 * 1024),
+        "loaded_classes": int(re.search(r"(\d+)\s+\d+\s+java\.lang\.Class\b", histogram).group(1)),
+        "committed_heap_mb": committed_mb("Java Heap"),
+        "class_metadata_mb": committed_mb("Class"),
+        "jit_code_mb": committed_mb("Code"),
+        "rss_after_gc_mb": rss_kb // 1024,
+    }
+
+
+def gpu_memory_mb(pid):
+    """GPU memory the kernel driver charges to a process (amdgpu, i915, ...); 0 on software rendering."""
+    per_client = {}
+    for info in Path(f"/proc/{pid}/fdinfo").iterdir():
+        try:
+            text = info.read_text()
+        except OSError:
+            continue
+        client = re.search(r"drm-client-id:\s*(\d+)", text)
+        if client:
+            # Drivers can report one region under both names, so don't add them up.
+            sizes = re.findall(r"drm-total-(?:vram|gtt|local|system):\s*(\d+) KiB", text) \
+                or re.findall(r"drm-memory-(?:vram|gtt):\s*(\d+) KiB", text)
+            per_client[client.group(1)] = sum(int(size) for size in sizes)
+    return sum(per_client.values()) // 1024
+
+
+def current_rss_mb(pid):
+    return int(re.search(r"VmRSS:\s+(\d+)", Path(f"/proc/{pid}/status").read_text()).group(1)) // 1024
+
+
+def gc_pauses(gc_log, start_offset):
+    """(number of pauses, total pause ms) logged after a position in a -Xlog:gc file."""
+    with open(gc_log, errors="replace") as file:
+        file.seek(start_offset)
+        pauses = [float(ms) for ms in re.findall(r"Pause .* ([\d.]+)ms$", file.read(), re.M)]
+    return len(pauses), round(sum(pauses))
+
+
 def report_metrics(work, metrics):
     (Path(work) / "metrics.json").write_text(json.dumps(metrics, indent=2))
     log("metrics: " + json.dumps(metrics))
@@ -261,13 +338,15 @@ def run_server(args, props):
     )
     world = work / "world"
     world.mkdir()
-    write_datapack(world)
+    write_datapack(world, wants_portal(args))
+    (work / "config").mkdir()
+    (work / "config" / "immersive_portals.json").write_text(os.environ.get("SMOKE_CONFIG", "{}"))
 
     log_path = work / "server.log"
     started = time.monotonic()
     with open(log_path, "w") as out:
         proc = subprocess.Popen(
-            [args.java, "-Xmx2G", "-jar", str(launcher), "nogui"],
+            [args.java, "-Xmx2G", "-XX:NativeMemoryTracking=summary", "-jar", str(launcher), "nogui"],
             cwd=work, stdin=subprocess.PIPE, stdout=out, stderr=subprocess.STDOUT, text=True,
         )
 
@@ -281,17 +360,20 @@ def run_server(args, props):
         log(f"server started in {startup:.1f}s")
         time.sleep(IDLE_SETTLE_SECONDS)
 
-        if not args.no_mod:
+        if wants_portal(args):
             # Checked after several seconds of ticking: invalid portals remove themselves.
             send("execute if entity @e[type=immersive_portals:portal]")
-            wait_for(r"Test passed, count: 1", log_path, proc, 30, "the portal entity to exist")
+            wait_for(r"Test passed[.,] [Cc]ount: 1", log_path, proc, 30, "the portal entity to exist")
             log("portal entity exists and survived ticking")
+        if not args.no_mod:
             send("help portal")
             wait_for(r"/portal ", log_path, proc, 30, "the /portal command")
 
         _, cpu_before = proc_status(proc.pid)
         time.sleep(IDLE_SAMPLE_SECONDS)
         peak_mb, cpu_after = proc_status(proc.pid)
+        rss_mb = current_rss_mb(proc.pid)
+        profile = jvm_profile(args.java, proc.pid, work)
         send("tick query")
         tick = wait_for(r"Average time per tick: ([\d.]+)ms", log_path, proc, 30, "tick stats")
 
@@ -302,15 +384,19 @@ def run_server(args, props):
         stop_process(proc)
 
     scan_for_fatal(log_path, work / "logs" / "latest.log")
+    if not args.no_mod and "Failed to load function" in log_path.read_text(errors="replace"):
+        raise SmokeFailure("the test data pack did not load, see server.log")
     if (work / "crash-reports").exists() and list((work / "crash-reports").glob("*")):
         raise SmokeFailure("server wrote a crash report")
 
     report_metrics(work, {
         "mode": "server", "mod": not args.no_mod,
         "startup_s": round(startup, 1),
+        "rss_mb": rss_mb,
         "peak_rss_mb": peak_mb,
         "idle_cpu_cores": round((cpu_after - cpu_before) / IDLE_SAMPLE_SECONDS, 3),
         "idle_tick_ms": float(tick.group(1)),
+        **profile,
     })
     return work
 
@@ -349,12 +435,12 @@ def client_classpath(props, cache):
     return [str(p) for p in libraries.values()] + [str(client_jar)], profile["mainClass"], meta["assetIndex"]["id"]
 
 
-def screenshot(game, dest):
+def screenshot(game, dest, pid):
     """Presses Minecraft's own screenshot key, so this is the real framebuffer."""
     folder = game / "screenshots"
     before = set(folder.glob("*.png")) if folder.exists() else set()
     window = subprocess.run(
-        ["xdotool", "search", "--name", "Minecraft"], check=True, capture_output=True, text=True, timeout=30,
+        ["xdotool", "search", "--pid", str(pid)], check=True, capture_output=True, text=True, timeout=30,
     ).stdout.split()[-1]
     subprocess.run(["xdotool", "key", "--window", window, "F2"], check=True, timeout=30)
     deadline = time.monotonic() + 30
@@ -388,41 +474,58 @@ def run_client(args, props):
 
     game = fresh_dir(work / "game")
     shutil.copytree(server_work / "world", game / "saves" / "smoke")
-    (game / "options.txt").write_text(CLIENT_OPTIONS)
+    (game / "options.txt").write_text(CLIENT_OPTIONS.format(render_distance=args.render_distance))
     (game / "config").mkdir()
-    (game / "config" / "immersive_portals.json").write_text('{"initialScreenShown": true}')
+    # SMOKE_CONFIG: config options to compare, as JSON.
+    config = {"initialScreenShown": True, "initialScreenVersion": 1, **json.loads(os.environ.get("SMOKE_CONFIG", "{}"))}
+    (game / "config" / "immersive_portals.json").write_text(json.dumps(config))
     mods = game / "mods"
     mods.mkdir()
     shutil.copy(fabric_api_jar(props, args.cache), mods)
     if not args.no_mod:
         shutil.copy(args.jar, mods)
     if args.with_sodium_iris:
-        shutil.copy(modrinth_jar(props["sodium_path"], args.cache), mods)
-        shutil.copy(modrinth_jar(props["iris_path"], args.cache), mods)
+        shutil.copy(modrinth_jar("sodium", props["sodium_version"], args.cache), mods)
+        shutil.copy(modrinth_jar("iris", props["iris_version"], args.cache), mods)
 
     classpath, main_class, asset_index = client_classpath(props, args.cache)
     log_path = game / "logs" / "latest.log"
+    gc_log = work / "gc.log"
     command = [
-        args.java, "-Xmx3G", "-cp", os.pathsep.join(classpath), main_class,
+        args.java, "-Xmx4G", *LAUNCHER_JVM_ARGS, "-XX:NativeMemoryTracking=summary", f"-Xlog:gc:file={gc_log}",
+        *os.environ.get("SMOKE_JVM_ARGS", "").split(), "-cp", os.pathsep.join(classpath), main_class,
         "--username", "SmokeTest", "--version", props["minecraft_version"],
         "--gameDir", str(game), "--assetsDir", str(game / "assets"), "--assetIndex", asset_index,
         "--accessToken", "0", "--userType", "legacy", "--versionType", "release",
         "--width", "854", "--height", "480", "--quickPlaySingleplayer", "smoke",
     ]
     with open(work / "client.out", "w") as out:
-        proc = subprocess.Popen(command, cwd=game, stdout=out, stderr=subprocess.STDOUT, env=os.environ)
+        # The screenshot key is sent through X11, so don't let the game pick Wayland.
+        env = {k: v for k, v in os.environ.items() if k != "WAYLAND_DISPLAY"}
+        proc = subprocess.Popen(command, cwd=game, stdout=out, stderr=subprocess.STDOUT, env=env)
 
+    idle_gpu_mb = None
     try:
         wait_for(r"SMOKE_READY", log_path, proc, CLIENT_STAGE_TIMEOUT, "the player to load into the world")
         log("player in world, standing over the portal")
         _, cpu_before = proc_status(proc.pid)
+        gc_start = gc_log.stat().st_size
         time.sleep(CLIENT_SAMPLE_SECONDS)
         peak_mb, cpu_after = proc_status(proc.pid)
         cpu_cores = (cpu_after - cpu_before) / CLIENT_SAMPLE_SECONDS
+        gpu_mb = gpu_memory_mb(proc.pid)
+        rss_mb = current_rss_mb(proc.pid)
+        pause_count, pause_ms = gc_pauses(gc_log, gc_start)
+        process_status = Path(f"/proc/{proc.pid}/status").read_text()
+        rss_parts = {
+            f"{name.lower()}_mb": int(re.search(rf"{name}:\s+(\d+)", process_status).group(1)) // 1024
+            for name in ("RssAnon", "RssFile", "RssShmem")
+        }
+        profile = jvm_profile(args.java, proc.pid, work)
 
         # Taken last so chunks have appeared even on a slow software renderer.
-        screenshot(game, work / "portal-view.png")
-        if not args.no_mod:
+        screenshot(game, work / "portal-view.png", proc.pid)
+        if wants_portal(args):
             # A band of the Nether wall seen through the portal; without a
             # working portal view this part of the screen is overworld grass.
             r, g, b = mean_color(work / "portal-view.png", "iw*0.07:ih*0.06:iw*0.465:ih*0.26")
@@ -430,14 +533,27 @@ def run_client(args, props):
             if r < g * 1.5:
                 raise SmokeFailure("the Nether is not visible through the portal")
 
-        if not args.no_mod:
+        if wants_portal(args):
             wait_for(r"SMOKE_RELEASE", log_path, proc, CLIENT_STAGE_TIMEOUT, "the release of the player")
             wait_for(r"SMOKE_CROSSED", log_path, proc, 60, "the player to cross the portal")
             wait_for(r"Client Teleported", log_path, proc, 10, "the client-side seamless teleport")
             log("player crossed into the Nether through the portal")
             wait_for(r"SMOKE_DONE", log_path, proc, CLIENT_STAGE_TIMEOUT, "the player to stay in the Nether")
-            screenshot(game, work / "after-crossing.png")
+            screenshot(game, work / "after-crossing.png", proc.pid)
             peak_mb, _ = proc_status(proc.pid)
+            wait_for(r"SMOKE_RETURN", log_path, proc, CLIENT_STAGE_TIMEOUT, "the trip back")
+            idle_gpu_mb = gpu_memory_mb(proc.pid)
+            wait_for(r"SMOKE_BACK", log_path, proc, CLIENT_STAGE_TIMEOUT, "the overworld to reload")
+            screenshot(game, work / "after-return.png", proc.pid)
+            # The player is back where it started: overworld terrain and the view through the portal both rebuilt.
+            r, g, b = mean_color(work / "after-return.png", "iw*0.07:ih*0.06:iw*0.465:ih*0.26")
+            log(f"colour through the portal after returning: rgb({r}, {g}, {b})")
+            if r < g * 1.5:
+                raise SmokeFailure("the portal view did not come back after returning")
+            r, g, b = mean_color(work / "after-return.png", "iw*0.1:ih*0.1:iw*0.05:ih*0.1")
+            log(f"colour of the overworld ground after returning: rgb({r}, {g}, {b})")
+            if g <= r or g <= b:
+                raise SmokeFailure("the overworld terrain did not come back after returning")
     finally:
         stop_process(proc)
     if proc.returncode not in (0, 143, -signal.SIGTERM):
@@ -449,7 +565,11 @@ def run_client(args, props):
 
     report_metrics(work, {
         "mode": "client", "mod": not args.no_mod, "sodium_iris": args.with_sodium_iris,
-        "peak_rss_mb": peak_mb, "cpu_cores_at_60fps_cap": round(cpu_cores, 3),
+        "portal": wants_portal(args),
+        "render_distance": args.render_distance,
+        "rss_mb": rss_mb, "peak_rss_mb": peak_mb, "gpu_mb": gpu_mb, "cpu_cores_at_60fps_cap": round(cpu_cores, 3),
+        "gc_pauses": pause_count, "gc_pause_ms": pause_ms, "idle_gpu_mb": idle_gpu_mb, **rss_parts,
+        **profile,
     })
 
 
@@ -463,14 +583,14 @@ def compare(args):
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             rows.append(f"| {key} | {baseline.get(key, '-') if baseline else '-'} | {value} |")
     if with_mod["mode"] == "server":
-        if with_mod["peak_rss_mb"] - baseline["peak_rss_mb"] > MAX_SERVER_EXTRA_RSS_MB:
+        if with_mod["rss_mb"] - baseline["rss_mb"] > MAX_SERVER_EXTRA_RSS_MB:
             failures.append(f"server memory overhead above {MAX_SERVER_EXTRA_RSS_MB} MB")
         if with_mod["startup_s"] - baseline["startup_s"] > MAX_SERVER_EXTRA_STARTUP_S:
             failures.append(f"server startup overhead above {MAX_SERVER_EXTRA_STARTUP_S} s")
         if with_mod["idle_tick_ms"] > MAX_SERVER_IDLE_TICK_MS:
             failures.append(f"idle tick above {MAX_SERVER_IDLE_TICK_MS} ms")
-    elif with_mod["peak_rss_mb"] > MAX_CLIENT_RSS_MB:
-        failures.append(f"client memory above {MAX_CLIENT_RSS_MB} MB")
+    elif with_mod["rss_mb"] - baseline["rss_mb"] > MAX_CLIENT_EXTRA_RSS_MB:
+        failures.append(f"client memory overhead above {MAX_CLIENT_EXTRA_RSS_MB} MB")
 
     table = f"### {args.title}\n\n| metric | no mod | with mod |\n|---|---|---|\n" + "\n".join(rows) + "\n"
     print(table)
@@ -491,8 +611,10 @@ def main():
         p.add_argument("--cache", default=str(Path.home() / ".cache" / "immersive-portals-smoke"))
         p.add_argument("--java", default=shutil.which("java") or "java")
         p.add_argument("--no-mod", action="store_true", help="measure a mod-free baseline")
+        p.add_argument("--no-portal", action="store_true", help="the mod is installed, but no portal exists")
         if mode == "client":
             p.add_argument("--with-sodium-iris", action="store_true")
+            p.add_argument("--render-distance", type=int, default=6)
     p = sub.add_parser("compare")
     p.add_argument("--with-mod", required=True)
     p.add_argument("--baseline")

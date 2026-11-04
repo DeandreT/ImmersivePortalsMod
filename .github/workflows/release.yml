@@ -13,9 +13,8 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 75
     outputs:
-      mod_version: ${{ steps.version.outputs.mod_version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
@@ -23,7 +22,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "25"
 
       - uses: gradle/actions/setup-gradle@v6
 
@@ -45,11 +44,10 @@ jobs:
         run: |
           base=$(sed -n 's/^mod_version=//p' gradle.properties)
           minecraft=$(sed -n 's/^minecraft_version=//p' gradle.properties)
-          echo "mod_version=${base}+build.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "tag=v${base}-mc${minecraft}-build.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
       - name: Build and run unit tests
-        run: ./gradlew build -Pmod_version=${{ steps.version.outputs.mod_version }} --console=plain
+        run: ./gradlew build -Pbuild_number=${GITHUB_RUN_NUMBER} --console=plain
 
       - name: Server smoke test
         run: |
@@ -71,6 +69,13 @@ jobs:
           python3 .github/scripts/smoke_test.py compare --title "Client (software rendering)" \
             --with-mod "$RUNNER_TEMP/client/metrics.json" --baseline "$RUNNER_TEMP/client-baseline/metrics.json"
 
+      - name: In-game feature suite
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          xvfb-run -a -s "-screen 0 1280x720x24" \
+            ./gradlew runClientGameTest -Pbuild_number=${GITHUB_RUN_NUMBER} -Pimm_ptl.visualTest.skip=true --console=plain
+
       - name: Upload jar
         uses: actions/upload-artifact@v7
         with:
@@ -88,6 +93,10 @@ jobs:
           if-no-files-found: ignore
           path: |
             ${{ runner.temp }}/client*/*.png
+            ${{ runner.temp }}/client*/metrics.json
+            ${{ runner.temp }}/client*/gc.log
+            ${{ runner.temp }}/server*/metrics.json
+            build/feature-test/report.txt
             ${{ runner.temp }}/client*/game/logs/latest.log
             ${{ runner.temp }}/client*/game/crash-reports/*
             ${{ runner.temp }}/client*/client.out
