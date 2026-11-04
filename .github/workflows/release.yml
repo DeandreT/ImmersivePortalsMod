@@ -71,6 +71,14 @@ jobs:
           python3 .github/scripts/smoke_test.py compare --title "Client (software rendering)" \
             --with-mod "$RUNNER_TEMP/client/metrics.json" --baseline "$RUNNER_TEMP/client-baseline/metrics.json"
 
+      - name: Multiplayer smoke test (two players on a dedicated server)
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          SDL_VIDEO_FORCE_EGL: "1"
+        run: |
+          jar=$(ls build/libs/*-fabric.jar)
+          xvfb-run -a -s "-screen 0 854x480x24" python3 .github/scripts/smoke_test.py multiplayer --jar "$jar" --work "$RUNNER_TEMP/multiplayer"
+
       - name: In-game feature suite
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
@@ -96,13 +104,17 @@ jobs:
           if-no-files-found: ignore
           path: |
             ${{ runner.temp }}/client*/*.png
+            ${{ runner.temp }}/multiplayer/*.png
+            ${{ runner.temp }}/multiplayer/metrics.json
+            ${{ runner.temp }}/multiplayer/*/logs/latest.log
+            ${{ runner.temp }}/multiplayer/server/server.log
             ${{ runner.temp }}/client*/metrics.json
             ${{ runner.temp }}/client*/gc.log
             ${{ runner.temp }}/server*/metrics.json
             build/feature-test/report.txt
             ${{ runner.temp }}/client*/game/logs/latest.log
             ${{ runner.temp }}/client*/game/crash-reports/*
-            ${{ runner.temp }}/client*/client.out
+            ${{ runner.temp }}/client*/game.out
             ${{ runner.temp }}/server*/server.log
 
   release:

@@ -766,7 +766,7 @@ public class FeatureSmokeTest implements FabricClientGameTest {
             }
         });
         check("Sodium video settings: choosing a preset there and applying sets its settings",
-            result.equals("performance layer 2 running 2 shown 2; balanced layer 5 shown 5"), result);
+            result.equals("performance layer 2 running 2 shown 2; balanced layer 3 shown 3"), result);
 
         // our page, opened directly
         ctx.runOnClient(mc -> {
