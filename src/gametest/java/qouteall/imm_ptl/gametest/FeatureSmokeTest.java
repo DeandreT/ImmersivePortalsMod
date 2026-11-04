@@ -202,9 +202,12 @@ public class FeatureSmokeTest implements FabricClientGameTest {
 
             // gradle -Pimm_ptl.featureTest.only=hidden|terrain: only that scene
             String only = System.getProperty("imm_ptl.featureTest.only");
-            if ("hidden".equals(only) || "terrain".equals(only)) {
+            if ("hidden".equals(only) || "terrain".equals(only) || "nether".equals(only)) {
                 if ("hidden".equals(only)) {
                     section("hidden portal culling", () -> hiddenPortalCulling(ctx, srv));
+                }
+                else if ("nether".equals(only)) {
+                    section("singleplayer nether portal", () -> netherPortal(ctx, srv, "sp"));
                 }
                 else {
                     section("terrain behind a far portal", () -> farPortalTerrain(ctx, srv));
@@ -350,6 +353,39 @@ public class FeatureSmokeTest implements FabricClientGameTest {
             return false;
         });
         check(tag + ": an obsidian frame exists at the nether destination", destFrame, "dest " + dest);
+        // the generated frame must not float: the frame's bottom row sits on solid ground or the support platform
+        boolean destSupported = srv.computeOnServer(s -> {
+            ServerLevel nether = s.getLevel(Level.NETHER);
+            java.util.List<Portal> destPortalEntities = nether.getEntitiesOfClass(Portal.class, new AABB(dest, dest).inflate(3));
+            if (destPortalEntities.isEmpty()) {
+                return false;
+            }
+            Portal destPortal = destPortalEntities.get(0);
+            int frameBottomY = (int) Math.floor(destPortal.position().y - destPortal.getHeight() / 2) - 1;
+            BlockPos c = BlockPos.containing(dest);
+            java.util.List<BlockPos> bottomRow = new java.util.ArrayList<>();
+            for (BlockPos p : BlockPos.betweenClosed(c.offset(-4, -4, -4), c.offset(4, 4, 4))) {
+                if (p.getY() == frameBottomY && nether.getBlockState(p).is(Blocks.OBSIDIAN)) {
+                    bottomRow.add(p.immutable());
+                }
+            }
+            return !bottomRow.isEmpty() && bottomRow.stream()
+                .allMatch(p -> nether.getBlockState(p.below()).isSolid());
+        });
+        String supportDetail = srv.computeOnServer(s -> {
+            ServerLevel nether = s.getLevel(Level.NETHER);
+            BlockPos c = BlockPos.containing(dest);
+            StringBuilder sb = new StringBuilder("dest " + dest + " blocks:");
+            for (BlockPos p : BlockPos.betweenClosed(c.offset(-3, -4, -3), c.offset(3, 2, 3))) {
+                var state = nether.getBlockState(p);
+                if (!state.isAir()) {
+                    sb.append(" ").append(p.getX()).append(",").append(p.getY()).append(",").append(p.getZ())
+                        .append("=").append(state.getBlock().getName().getString());
+                }
+            }
+            return sb.toString();
+        });
+        check(tag + ": the generated nether frame is supported from below (not floating)", destSupported, supportDetail);
 
         // look through the portal: the client must have loaded the nether around the destination
         srv.runCommand(String.format(Locale.ROOT, "tp Player0 %.1f %d %.1f 180 0", x0 + 2.0, ground + 1, z + 4.0));
@@ -801,7 +837,7 @@ public class FeatureSmokeTest implements FabricClientGameTest {
                 + " yourself " + c.renderYourselfInPortal + " adjustment " + c.enableClientPerformanceAdjustment;
         });
         check("config presets: choosing balanced restores the defaults",
-            balanced.equals("balanced layer 5 reduced false cap 8 yourself true adjustment true"), balanced);
+            balanced.equals("balanced layer 3 reduced false cap 8 yourself true adjustment true"), balanced);
 
         // the config screen (with the preset at the top of the client settings) opens and saves
         ctx.runOnClient(mc -> mc.gui.setScreen(

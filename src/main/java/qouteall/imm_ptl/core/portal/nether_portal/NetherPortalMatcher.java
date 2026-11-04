@@ -69,7 +69,8 @@ public class NetherPortalMatcher {
         else {
             LOGGER.info("Generated Portal On Non Solid Surface");
             
-            return levitateBox(world, airCube.getSubBoxInCenter(areaSize), 40);
+            // ground it instead of floating it in the air
+            return pushDownBox(world, airCube.getSubBoxInCenter(areaSize));
         }
         
     }

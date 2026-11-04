@@ -29,9 +29,9 @@ public class IntrinsicNetherPortalForm extends NetherPortalLikeForm {
     
     @Override
     public void generateNewFrame(ServerLevel fromWorld, BlockPortalShape fromShape, ServerLevel toWorld, BlockPortalShape toShape) {
-        for (BlockPos blockPos : toShape.frameAreaWithCorner) {
-            toWorld.setBlockAndUpdate(blockPos, Blocks.OBSIDIAN.defaultBlockState());
-        }
+        qouteall.imm_ptl.core.portal.nether_portal.NetherPortalGeneration.embodyNewFrame(
+            toWorld, toShape, Blocks.OBSIDIAN.defaultBlockState()
+        );
     }
     
     @Override

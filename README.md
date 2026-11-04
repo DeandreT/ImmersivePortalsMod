@@ -34,6 +34,20 @@ Each of these is checked automatically in the real game on every push:
 
 Shader packs are experimental and aren't part of the automated checks. Iris needs the OpenGL backend.
 
+## The obsidian frame on the other side
+
+When you light a Nether portal and no portal exists on the other side yet, the mod builds one there:
+an obsidian frame the same size as yours (that frame is what makes the portal break correctly when you
+mine it). Generated frames are placed on the ground, not floating in the air; where the ground cannot be
+reached (for example over a lava lake) a one-block obsidian step is added under the frame so you can walk
+out. If you do not want the frame, remove it after the portal exists only if you replace it with the same
+obsidian outline — the portal checks that outline.
+
+For the smoothest portal view: use the Balanced preset (default, portal-in-portal depth 3; with a
+shaderpack the depth is capped at 2 because shaderpack views cannot be cropped to the portal's screen
+area), or the Performance preset in the config screen if frames still drop. Lowering render distance
+helps portal views more than the main view, because the world behind the portal is drawn as well.
+
 ## Memory use
 
 Most of what this mod used to cost was memory it wasn't using, so it now uses less than the unmodded game in the scenes below. These were measured with one portal in view on an AMD Renoir APU, using the official launcher's Java flags, at 480p in singleplayer:
@@ -60,7 +74,7 @@ These runs last a few minutes with a single portal, and each was mostly run once
 | Each dimension's renderer reserved terrain buffers in 128 MiB blocks, mostly empty | Blocks are now 32 MiB (8 MiB for indices), and grow if one mesh needs more. This helps the player's main renderer too | `compactTerrainBuffers` |
 | Java kept the free memory left over from loading: about 300 MB of live data could hold 800 MB | After joining a world, Java is told to return free memory, and it does so once while the loading screen hides the pause | `trimJavaHeap` |
 | On Linux, the C library kept about 200 MB of freed native memory after loading | Returned after joining, and then once a minute on a background thread | `trimJavaHeap` |
-| Dimensions you visited once kept their terrain data | Released after 30 seconds unseen, and rebuilt when you see them again, so terrain can take a moment to appear | `releaseIdleRenderers` |
+| Dimensions you visited once kept their terrain data | Released after 2 minutes unseen, and rebuilt when you see them again, so terrain can take a moment to appear after a long stay away | `releaseIdleRenderers` |
 | Portal images stayed allocated after you looked away | Freed after 600 frames with no portal rendered | Always on |
 
 The options are in the mod's config screen under the client tab, or in `config/immersive_portals.json`. Some limits:

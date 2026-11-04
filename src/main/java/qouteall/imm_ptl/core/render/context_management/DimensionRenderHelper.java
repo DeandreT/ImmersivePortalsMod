@@ -55,7 +55,8 @@ public class DimensionRenderHelper {
     private static final int EXTRA_HELPER_IDLE_FRAMES = 600;
     private static final int MAX_EXTRA_HELPERS = 3;
     // a dimension that the player isn't in and no portal has shown for this long gets its terrain data released
-    private static final long IDLE_RELEASE_NANOS = 30_000_000_000L;
+    // (long enough that a normal go-and-return trip does not pay a full terrain rebuild on the way back)
+    private static final long IDLE_RELEASE_NANOS = 120_000_000_000L;
     // a view camera less than this many sections from the edge of a grid doesn't use that grid
     private static final int GRID_MARGIN_SECTIONS = 4;
 

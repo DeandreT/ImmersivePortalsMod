@@ -12,7 +12,7 @@ package qouteall.imm_ptl.core.platform_specific;
 public enum ConfigPreset {
     custom(-1, false, -1, false, false, false),
     performance(2, true, 4, false, true, true),
-    balanced(5, false, 8, true, true, true),
+    balanced(3, false, 8, true, true, true),
     quality(5, false, 16, true, false, false);
 
     // portal-in-portal rendering depth

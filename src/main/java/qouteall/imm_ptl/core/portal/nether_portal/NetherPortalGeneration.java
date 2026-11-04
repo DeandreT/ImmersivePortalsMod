@@ -70,7 +70,7 @@ public class NetherPortalGeneration {
             
             if (foundAirCube != null) {
                 if (isFloating(toWorld, foundAirCube)) {
-                    foundAirCube = NetherPortalMatcher.levitateBox(toWorld, foundAirCube, 50);
+                    foundAirCube = NetherPortalMatcher.pushDownBox(toWorld, foundAirCube);
                 }
             }
         }
@@ -290,6 +290,35 @@ public class NetherPortalGeneration {
         toShape.frameAreaWithCorner.forEach(blockPos ->
             toWorld.setBlockAndUpdate(blockPos, frameBlockState)
         );
+        addSupportPlatform(toWorld, toShape, frameBlockState);
+    }
+    
+    // a walkable step under a vertical frame that could not be grounded (e.g. over lava),
+    // so the portal does not float as a bare slab and the player does not fall on exit
+    public static void addSupportPlatform(
+        ServerLevel toWorld,
+        BlockPortalShape toShape,
+        BlockState frameBlockState
+    ) {
+        if (toShape.axis == Direction.Axis.Y) {
+            return;
+        }
+        int platformY = toShape.totalAreaBox.l.getY() - 1;
+        if (platformY <= toWorld.getMinY()) {
+            return;
+        }
+        // the bottom slab of the frame, extended one block out on both faces of the portal
+        IntBox platform = toShape.totalAreaBox.getSurfaceLayer(Direction.DOWN)
+            .getAdjusted(
+                toShape.axis == Direction.Axis.X ? -1 : 0, -1, toShape.axis == Direction.Axis.Z ? -1 : 0,
+                toShape.axis == Direction.Axis.X ? 1 : 0, -1, toShape.axis == Direction.Axis.Z ? 1 : 0
+            );
+        platform.stream().forEach(blockPos -> {
+            BlockState current = toWorld.getBlockState(blockPos);
+            if (current.isAir() || !current.getFluidState().isEmpty()) {
+                toWorld.setBlockAndUpdate(blockPos, frameBlockState);
+            }
+        });
     }
     
     public static void fillInPlaceHolderBlocks(

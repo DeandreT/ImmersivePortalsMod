@@ -39,7 +39,7 @@ public class IPGlobal {
     
     public static final Gson gson = MiscHelper.gson;
     
-    public static int maxPortalLayer = 5;
+    public static int maxPortalLayer = 3;
     
     public static int indirectLoadingRadiusCap = 8;
 

@@ -117,9 +117,9 @@ public class ScalingSquareForm extends NetherPortalLikeForm {
     
     @Override
     public void generateNewFrame(ServerLevel fromWorld, BlockPortalShape fromShape, ServerLevel toWorld, BlockPortalShape toShape) {
-        for (BlockPos blockPos : toShape.frameAreaWithCorner) {
-            toWorld.setBlockAndUpdate(blockPos, toFrameBlock.defaultBlockState());
-        }
+        qouteall.imm_ptl.core.portal.nether_portal.NetherPortalGeneration.embodyNewFrame(
+            toWorld, toShape, toFrameBlock.defaultBlockState()
+        );
     }
     
     @Override

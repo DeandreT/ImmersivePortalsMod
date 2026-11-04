@@ -95,14 +95,14 @@ execute if score #t smoke matches 800 run setblock 0 -21 0 minecraft:air
 execute as @a[tag=!smoke_crossed] at @s if dimension minecraft:the_nether run function smoke:crossed
 execute if score #d smoke matches 1.. run scoreboard players add #d smoke 1
 execute if score #d smoke matches 200 run say SMOKE_DONE
-execute if score #d smoke matches 900 run function smoke:return
-execute if score #d smoke matches 1200 run say SMOKE_BACK
+execute if score #d smoke matches 2500 run function smoke:return
+execute if score #d smoke matches 2800 run say SMOKE_BACK
 """,
     "data/smoke/function/place.mcfunction": """
 tp @s 0.5 -20 0.5 0 90
 tag @s add smoke_placed
 """,
-    # Long enough away for the overworld's idle renderer to be released (30 s).
+    # Long enough away for the overworld's idle renderer to be released (120 s).
     "data/smoke/function/return.mcfunction": """
 setblock 0 -21 0 minecraft:glass
 execute as @a in minecraft:overworld run tp @s 0.5 -20 0.5 0 90

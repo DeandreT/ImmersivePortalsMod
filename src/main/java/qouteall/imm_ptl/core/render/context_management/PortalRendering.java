@@ -71,6 +71,10 @@ public class PortalRendering {
         if (RenderStates.isLaggy) {
             return 1;
         }
+        // with a shaderpack each view is full-size (no cropping), so recursive views cost far more
+        if (qouteall.imm_ptl.core.compat.iris_compatibility.IrisInterface.invoker.isShaderpackInUse()) {
+            return Math.min(IPGlobal.maxPortalLayer, 2);
+        }
         return IPGlobal.maxPortalLayer;
     }
     

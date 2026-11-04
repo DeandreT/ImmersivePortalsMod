@@ -239,7 +239,7 @@
   "text.autoconfig.immersive_portals.option.trimJavaHeap": "Return Free Memory To The System",
   "text.autoconfig.immersive_portals.option.trimJavaHeap.@Tooltip": "After joining a world, and every minute after that, makes Java return memory it no longer needs to the system. Turn this off if you see more stutter from garbage collection.",
   "text.autoconfig.immersive_portals.option.releaseIdleRenderers": "Free Unused Dimension Renderers",
-  "text.autoconfig.immersive_portals.option.releaseIdleRenderers.@Tooltip": "Frees the terrain of a dimension that no portal has shown for 30 seconds. It is rebuilt when you see it again, so terrain may take a moment to appear.",
+  "text.autoconfig.immersive_portals.option.releaseIdleRenderers.@Tooltip": "Frees the terrain of a dimension that no portal has shown for 2 minutes. It is rebuilt when you see it again, so terrain may take a moment to appear.",
   "text.autoconfig.immersive_portals.option.enableClientPerformanceAdjustment": "Enable Client Performance Adjustment",
   "text.autoconfig.immersive_portals.option.enableClientPerformanceAdjustment.@Tooltip": "If enabled, it will render fewer portal content when game is laggy.",
   "text.autoconfig.immersive_portals.option.reduceFarPortalUpdates": "Fewer Updates For Far Portals",
