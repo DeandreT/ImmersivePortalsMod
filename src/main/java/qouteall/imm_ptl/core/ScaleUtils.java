@@ -2,8 +2,6 @@ package qouteall.imm_ptl.core;
 
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.Entity;
@@ -12,9 +10,8 @@ import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.phys.Vec3;
-import org.apache.commons.lang3.Validate;
 import org.jetbrains.annotations.Nullable;
-import qouteall.imm_ptl.core.ducks.IECamera;
+import qouteall.imm_ptl.core.platform_shared.ModPlatform;
 import qouteall.imm_ptl.core.portal.Portal;
 import net.minecraft.world.entity.player.Player;
 
@@ -29,21 +26,8 @@ public class ScaleUtils {
     
     @Environment(EnvType.CLIENT)
     public static void onClientPlayerTeleported(Portal portal) {
-        if (portal.hasScaling() && portal.isTeleportChangesScale()) {
-            Minecraft client = Minecraft.getInstance();
-            
-            LocalPlayer player = client.player;
-            
-            Validate.notNull(player, "Player is null");
-            
-            doScalingForEntity(player, portal);
-            
-            IECamera camera = (IECamera) client.gameRenderer.mainCamera();
-            camera.ip_setCameraY(
-                ((float) (camera.ip_getCameraY() * portal.getScaling())),
-                ((float) (camera.ip_getLastCameraY() * portal.getScaling()))
-            );
-        }
+        if (ModPlatform.isDedicatedServer()) { throw new IllegalStateException("Client scaling called on a dedicated server"); }
+        ScaleUtilsClient.onPlayerTeleported(portal);
     }
     
     public static void onServerEntityTeleported(Entity entity, Portal portal) {
@@ -145,7 +129,7 @@ public class ScaleUtils {
         return getScale(entity);
     }
     
-    private static void doScalingForEntity(Entity entity, Portal portal) {
+    static void doScalingForEntity(Entity entity, Portal portal) {
         Vec3 eyePos = McHelper.getEyePos(entity);
         Vec3 lastTickEyePos = McHelper.getLastTickEyePos(entity);
         

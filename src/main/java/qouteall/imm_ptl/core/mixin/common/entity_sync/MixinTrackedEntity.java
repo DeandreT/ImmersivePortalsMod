@@ -239,7 +239,8 @@ public abstract class MixinTrackedEntity implements IETrackedEntity {
             return false;
         }
         
-        return rec.distanceToSource * 16 + 8 <= effectiveRange;
+        return entity.broadcastToPlayer(player)
+            && rec.distanceToSource * 16 + 8 <= effectiveRange;
     }
     
     @Override

@@ -20,6 +20,7 @@ import qouteall.imm_ptl.core.chunk_loading.EntitySync;
 import qouteall.imm_ptl.core.ducks.IEChunkMap;
 import qouteall.imm_ptl.core.ducks.IETrackedEntity;
 import qouteall.imm_ptl.core.miscellaneous.IPVanillaCopy;
+import qouteall.imm_ptl.core.platform_shared.EntityRegistration;
 import qouteall.imm_ptl.core.teleportation.ServerTeleportationManager;
 
 import java.util.List;
@@ -62,7 +63,10 @@ public abstract class MixinChunkMap_E implements IEChunkMap {
     )
     private void onUnloadEntity(Entity entity, CallbackInfo ci) {
         // when the player leave this dimension, do not stop tracking entities
-        if (ServerTeleportationManager.of(entity.level().getServer()).isTeleporting(entity)) {
+        // Tentative destination rollback needs ordinary removal packets, not the
+        // source-transfer suppression. The facade's scope is exact-world/identity bound.
+        if (!EntityRegistration.isCompensatingRemoval(level, entity)
+            && ServerTeleportationManager.of(entity.level().getServer()).isTeleporting(entity)) {
             if (entity instanceof ServerPlayer player) {
                 Object tracker = entityMap.remove(entity.getId());
                 ((IETrackedEntity) tracker).ip_stopTrackingToAllPlayers();

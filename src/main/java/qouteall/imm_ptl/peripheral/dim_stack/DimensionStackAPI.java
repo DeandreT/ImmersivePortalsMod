@@ -1,7 +1,6 @@
 package qouteall.imm_ptl.peripheral.dim_stack;
 
-import net.fabricmc.fabric.api.event.Event;
-import net.fabricmc.fabric.api.event.EventFactory;
+import qouteall.imm_ptl.core.platform_shared.Event;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.Identifier;
@@ -32,7 +31,7 @@ public class DimensionStackAPI {
     }
     
     public static final Event<DimensionCollectionCallback> DIMENSION_STACK_CANDIDATE_COLLECTION_EVENT =
-        EventFactory.createArrayBacked(
+        Event.createArrayBacked(
             DimensionCollectionCallback.class,
             (listeners) -> ((registryAccess, options) -> {
                 Set<ResourceKey<Level>> totalResult = new LinkedHashSet<>();
@@ -58,7 +57,7 @@ public class DimensionStackAPI {
      * but this time the `dimStackInfo` parameter will be null.
      */
     public static final Event<DimensionStackPreUpdateCallback> DIMENSION_STACK_PRE_UPDATE_EVENT =
-        EventFactory.createArrayBacked(
+        Event.createArrayBacked(
             DimensionStackPreUpdateCallback.class,
             (listeners) -> ((server, dimStackInfo) -> {
                 for (DimensionStackPreUpdateCallback listener : listeners) {

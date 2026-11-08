@@ -10,8 +10,6 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.datafixers.util.Pair;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
-import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
@@ -76,10 +74,13 @@ import java.util.stream.Collectors;
 @Environment(EnvType.CLIENT)
 public class ClientDebugCommand {
     
+    @SuppressWarnings("unchecked")
     public static void register(
-        CommandDispatcher<FabricClientCommandSource> dispatcher
+        CommandDispatcher<?> sourceDispatcher
     ) {
-        LiteralArgumentBuilder<FabricClientCommandSource> builder = ClientCommands
+        // None of these commands reads its source; feedback is always local client chat.
+        CommandDispatcher<Object> dispatcher = (CommandDispatcher<Object>) sourceDispatcher;
+        LiteralArgumentBuilder<Object> builder = ClientCommands
             .literal("imm_ptl_client_debug")
             .requires(commandSource -> true)
             .then(ClientCommands
@@ -381,7 +382,7 @@ public class ClientDebugCommand {
                             }
                         }
                         
-                        context.getSource().sendFeedback(
+                        CHelper.printChat(
                             Component.literal(
                                 "has light section " +
                                     (allZero ? "all zero" : "not all zero") +
@@ -390,7 +391,7 @@ public class ClientDebugCommand {
                         );
                     }
                     else {
-                        context.getSource().sendFeedback(
+                        CHelper.printChat(
                             Component.literal("does not have light section")
                         );
                     }
@@ -426,7 +427,7 @@ public class ClientDebugCommand {
             .literal("disable_warning")
             .executes(context -> {
                 disableWarning();
-                context.getSource().sendFeedback(Component.translatable("imm_ptl.warning_disabled"));
+                CHelper.printChat(Component.translatable("imm_ptl.warning_disabled"));
                 return 0;
             })
         );
@@ -437,7 +438,7 @@ public class ClientDebugCommand {
                 .argument("warningKey", StringArgumentType.string())
                 .executes(context -> {
                     disableWarningFor(StringArgumentType.getString(context, "warningKey"));
-                    context.getSource().sendFeedback(Component.translatable("imm_ptl.warning_disabled"));
+                    CHelper.printChat(Component.translatable("imm_ptl.warning_disabled"));
                     return 0;
                 })
             )
@@ -447,7 +448,7 @@ public class ClientDebugCommand {
             .literal("disable_update_check")
             .executes(context -> {
                 disableUpdateCheck();
-                context.getSource().sendFeedback(Component.translatable("imm_ptl.update_check_disabled"));
+                CHelper.printChat(Component.translatable("imm_ptl.update_check_disabled"));
                 return 0;
             })
         );
@@ -463,7 +464,7 @@ public class ClientDebugCommand {
                     Portal portal = pair.getFirst();
                     PortalCommand.sendPortalInfo(
                         c -> {
-                            context.getSource().sendFeedback(c);
+                            CHelper.printChat(c);
                             Helper.log(c.getString());
                             // if the data is too long, the in-game message will be chopped
                             // so also print that in log
@@ -472,7 +473,7 @@ public class ClientDebugCommand {
                     );
                 }
                 else {
-                    context.getSource().sendFeedback(Component.literal("No pointing to a portal."));
+                    CHelper.printChat(Component.literal("No pointing to a portal."));
                 }
                 return 0;
             })
@@ -516,7 +517,7 @@ public class ClientDebugCommand {
             .executes(context -> {
                 List<String> loadedModIds = O_O.getLoadedModIds();
                 String str = String.join("\n", loadedModIds);
-                context.getSource().sendFeedback(Component.literal(str));
+                CHelper.printChat(Component.literal(str));
                 return 0;
             })
         );
@@ -533,7 +534,7 @@ public class ClientDebugCommand {
             )
         );
         
-        LiteralArgumentBuilder<FabricClientCommandSource> wandBuilder = ClientCommands.literal("wand");
+        LiteralArgumentBuilder<Object> wandBuilder = ClientCommands.literal("wand");
         registerPortalWandCommands(wandBuilder);
         builder.then(wandBuilder);
         
@@ -691,7 +692,7 @@ registerSwitchCommand(
     }
     
     private static void registerPortalWandCommands(
-        LiteralArgumentBuilder<FabricClientCommandSource> builder
+        LiteralArgumentBuilder<Object> builder
     ) {
         builder.then(ClientCommands
             .literal("set_cursor_alignment")
@@ -703,7 +704,7 @@ registerSwitchCommand(
                     config.portalWandCursorAlignment = alignment;
                     config.saveConfigFile();
                     
-                    context.getSource().sendFeedback(Component.translatable("imm_ptl.wand.alignment_updated"));
+                    CHelper.printChat(Component.translatable("imm_ptl.wand.alignment_updated"));
                     
                     return 0;
                 })
@@ -722,7 +723,7 @@ registerSwitchCommand(
     }
     
     private static void registerSwitchCommand(
-        LiteralArgumentBuilder<FabricClientCommandSource> builder,
+        LiteralArgumentBuilder<Object> builder,
         String name,
         Consumer<Boolean> setFunction
     ) {
@@ -742,7 +743,7 @@ registerSwitchCommand(
         );
     }
     
-    private static int isClientChunkLoaded(CommandContext<FabricClientCommandSource> context) throws CommandSyntaxException {
+    private static int isClientChunkLoaded(CommandContext<Object> context) throws CommandSyntaxException {
         int chunkX = IntegerArgumentType.getInteger(context, "chunkX");
         int chunkZ = IntegerArgumentType.getInteger(context, "chunkZ");
         RemoteCallables.reportClientChunkLoadStatus(Minecraft.getInstance().level.dimension(), chunkX, chunkZ);

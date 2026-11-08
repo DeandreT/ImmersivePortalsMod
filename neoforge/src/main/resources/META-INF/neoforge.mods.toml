@@ -1,0 +1,84 @@
+modLoader="javafml"
+loaderVersion="[12,)"
+license="Apache-2.0"
+issueTrackerURL="https://github.com/riyadmondol2006/Immersive-portals-mod-Revived-/issues"
+
+[[mods]]
+modId="immersive_portals"
+version="${version}"
+displayName="Immersive Portals (Revived)"
+logoFile="assets/immersive_portals/icon.png"
+authors="qouteall (original author), nyannoying1337 (26.3 port)"
+description='''See through portals and travel between dimensions seamlessly. Unofficial native NeoForge port; report issues to the port, not the original author.'''
+
+[[dependencies.immersive_portals]]
+modId="neoforge"
+type="required"
+versionRange="[26.3.0.101,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.immersive_portals]]
+modId="minecraft"
+type="required"
+versionRange="[26.3,26.4)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.immersive_portals]]
+modId="dimlib"
+type="required"
+versionRange="[1.1.0,)"
+ordering="AFTER"
+side="BOTH"
+
+[[dependencies.immersive_portals]]
+modId="cloth_config"
+type="required"
+versionRange="[26.3.159,)"
+ordering="AFTER"
+side="BOTH"
+
+[[dependencies.immersive_portals]]
+modId="pehkui"
+type="incompatible"
+versionRange="(,3.4.1)"
+reason="Immersive Portals requires Pehkui 3.4.1 or newer."
+
+[[dependencies.immersive_portals]]
+modId="canvas"
+type="incompatible"
+reason="Canvas replaces rendering paths required by Immersive Portals."
+
+[[dependencies.immersive_portals]]
+modId="vmp"
+type="incompatible"
+reason="VMP replaces server chunk tracking required by Immersive Portals."
+
+[[dependencies.immersive_portals]]
+modId="resolutioncontrol"
+type="incompatible"
+reason="Resolution Control replaces rendering state required by Immersive Portals."
+
+[[dependencies.immersive_portals]]
+modId="gravity_api"
+type="incompatible"
+reason="This Gravity API is incompatible with Immersive Portals."
+
+[[mixins]]
+config="imm_ptl.mixins.json"
+[[mixins]]
+config="imm_ptl_peripheral.mixins.json"
+[[mixins]]
+config="imm_ptl_neoforge.mixins.json"
+[[mixins]]
+config="imm_ptl_neoforge_compat.mixins.json"
+[[mixins]]
+config="imm_ptl_compat.mixins.json"
+[[mixins]]
+config="q_misc_util.mixins.json"
+
+# Lithium reads per-mod overrides on both supported loaders.
+[modproperties.immersive_portals]
+"lithium:options"={"mixin.world.player_chunk_tick"=false,"mixin.world.combined_heightmap_update"=false}
+"sodium:config_api_user"="qouteall.imm_ptl.core.compat.sodium_compatibility.IPSodiumConfigEntryPoint"

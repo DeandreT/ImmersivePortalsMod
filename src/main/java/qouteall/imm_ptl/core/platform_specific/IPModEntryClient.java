@@ -1,8 +1,9 @@
 package qouteall.imm_ptl.core.platform_specific;
 
-import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
-import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.api.EnvType;
+import net.fabricmc.api.Environment;
+import qouteall.imm_ptl.core.platform_shared.ModPlatform;
+import qouteall.imm_ptl.core.platform_shared.ClientPlatformHooks;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.EntityType;
@@ -32,7 +33,8 @@ import qouteall.q_misc_util.my_util.MyTaskList;
 
 import java.util.Arrays;
 
-public class IPModEntryClient implements ClientModInitializer {
+@Environment(EnvType.CLIENT)
+public class IPModEntryClient {
     
     
     
@@ -50,27 +52,26 @@ public class IPModEntryClient implements ClientModInitializer {
             VerticalConnectingPortal.ENTITY_TYPE,
             GeneralBreakablePortal.ENTITY_TYPE
         }).forEach(
-            entityType -> EntityRendererRegistry.register(
+            entityType -> ClientPlatformHooks.registerRenderer(
                 entityType,
                 (EntityRendererProvider) PortalEntityRenderer::new
             )
         );
         
-        EntityRendererRegistry.register(
+        ClientPlatformHooks.registerRenderer(
             LoadingIndicatorEntity.entityType,
             LoadingIndicatorRenderer::new
         );
         
     }
     
-    @Override
     public void onInitializeClient() {
         IPModMainClient.init();
         
         initPortalRenderers();
         
         boolean isSodiumPresent =
-            FabricLoader.getInstance().isModLoaded("sodium");
+            ModPlatform.isModLoaded("sodium");
         if (isSodiumPresent) {
             Helper.log("Sodium is present");
             
@@ -91,7 +92,7 @@ public class IPModEntryClient implements ClientModInitializer {
             Helper.log("Sodium is not present");
         }
         
-        if (FabricLoader.getInstance().isModLoaded("iris")) {
+        if (ModPlatform.isModLoaded("iris")) {
             Helper.log("Iris is present");
 
             IrisInterface.invoker = new OnIrisPresent();

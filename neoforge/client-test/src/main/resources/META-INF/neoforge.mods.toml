@@ -1,0 +1,25 @@
+modLoader="javafml"
+loaderVersion="[12,)"
+license="Apache-2.0"
+
+[[mods]]
+modId="ip_native_client_test"
+version="1.0"
+displayName="Native Real Client Smoke Harness (development only)"
+
+[[mixins]]
+config="ip_native_client_test.mixins.json"
+
+[[dependencies.ip_native_client_test]]
+modId="neoforge"
+type="required"
+versionRange="[26.3.0.101]"
+ordering="AFTER"
+side="BOTH"
+
+[[dependencies.ip_native_client_test]]
+modId="immersive_portals"
+type="required"
+versionRange="[7.0.1-dev]"
+ordering="AFTER"
+side="BOTH"

@@ -1,0 +1,85 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+group = 'qouteall.tests'
+version = '1.0'
+
+java { toolchain.languageVersion = JavaLanguageVersion.of(25) }
+def toolingLauncher = javaToolchains.launcherFor(java.toolchain)
+tasks.withType(net.neoforged.nfrtgradle.NeoFormRuntimeTask).configureEach {
+    javaExecutable.set(toolingLauncher.map { it.executablePath.asFile.absolutePath })
+}
+repositories { mavenCentral() }
+
+def parentArtifact = providers.gradleProperty('parentArtifact').map { file(it) }.getOrElse(
+    file('../build/libs/immersive-portals-7.0.1-dev-mc26.3-neoforge.jar'))
+
+dependencies {
+    // An actual jar, not a composite dependency substituted with parent source directories.
+    compileOnly files(parentArtifact)
+    runtimeOnly files(parentArtifact)
+}
+
+neoForge {
+    version = '26.3.0.101'
+    mods { ip_native_recovery_test { sourceSet(sourceSets.main) } }
+    runs {
+        recoveryServer {
+            server()
+            gameDirectory = file(providers.gradleProperty('recoveryRunDir').getOrElse('build/disabled-run'))
+            programArgument('--nogui')
+            jvmArgument('-XX:ActiveProcessorCount=2')
+            jvmArgument('-Xmx1G')
+            jvmArgument('-Djava.awt.headless=true')
+            def reportFile = providers.gradleProperty('recoveryReport').orNull
+            if (reportFile != null) {
+                def classInitLog = new File(file(reportFile).parentFile, 'class-init.log')
+                jvmArgument("-Xlog:class+init=info:file=${classInitLog.absolutePath}:time,level,tags")
+            }
+            ['recoveryNonce', 'recoveryReport', 'parentArtifactSha256', 'dimlibSha256', 'clothSha256'].each { key ->
+                systemProperty("ip.recovery.${key}", providers.gradleProperty(key).getOrElse(''))
+            }
+            systemProperty('ip.recovery.parentArtifact', parentArtifact.absolutePath)
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach { options.release = 25 }
+tasks.named('compileJava') {
+    doFirst {
+        if (!parentArtifact.isFile()) {
+            throw new GradleException('Build the parent native jar first; this harness never substitutes parent dev sources.')
+        }
+    }
+}
+tasks.named('runRecoveryServer') {
+    doFirst {
+        def nonce = providers.gradleProperty('recoveryNonce').getOrElse('')
+        def directory = file(providers.gradleProperty('recoveryRunDir').getOrElse('build/disabled-run'))
+        def marker = new File(directory, '.ip-native-recovery-owned')
+        if (nonce.size() < 32 || !marker.isFile() || marker.text.trim() != nonce) {
+            throw new GradleException('Run recoveryTest -PacceptEula=true (or test_server.py --accept-eula), never an unowned server directory.')
+        }
+        // Retain the exact owning Gradle JVM identity too: a daemon may detach
+        // from the wrapper's process group before it launches the game.
+        def stat = new File('/proc/self/stat').text
+        new File(directory, '.ip-native-recovery-gradle.json').text = groovy.json.JsonOutput.toJson([
+            pid: ProcessHandle.current().pid(),
+            start: stat.substring(stat.lastIndexOf(')') + 1).trim().split(/\s+/)[19],
+            nonce: nonce
+        ])
+    }
+}
+
+tasks.register('recoveryTest', Exec) {
+    group = 'verification'
+    description = 'Runs native recovery events on a disposable loopback dedicated server; requires -PacceptEula=true.'
+    doFirst {
+        if (providers.gradleProperty('acceptEula').getOrElse('false') != 'true') {
+            throw new GradleException('Explicit -PacceptEula=true is required for the disposable Minecraft server.')
+        }
+    }
+    commandLine 'python3', file('test_server.py'), '--accept-eula', '--artifact', parentArtifact
+}

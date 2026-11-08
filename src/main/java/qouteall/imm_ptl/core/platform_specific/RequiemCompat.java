@@ -1,17 +1,11 @@
 package qouteall.imm_ptl.core.platform_specific;
 
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
-import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.player.LocalPlayer;
+import qouteall.imm_ptl.core.platform_shared.ModPlatform;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.player.Player;
 import org.apache.commons.lang3.Validate;
 import qouteall.imm_ptl.core.McHelper;
-import qouteall.imm_ptl.core.teleportation.ClientTeleportationManager;
 import qouteall.imm_ptl.core.teleportation.ServerTeleportationManager;
 import qouteall.q_misc_util.Helper;
 
@@ -29,7 +23,7 @@ public class RequiemCompat {
     }
     
     public static void init() {
-        isRequiemPresent = FabricLoader.getInstance().isModLoaded("requiem");
+        isRequiemPresent = ModPlatform.isModLoaded("requiem");
         
         if (!isRequiemPresent) {
             return;
@@ -57,26 +51,6 @@ public class RequiemCompat {
         Object possessedEntity = Helper.noError(() ->
             method_getPossessedEntity.invoke(possessionComponent));
         return (Mob) possessedEntity;
-    }
-    
-    @Environment(EnvType.CLIENT)
-    public static void onPlayerTeleportedClient() {
-        if (!isRequiemPresent) {
-            return;
-        }
-        
-        LocalPlayer player = Minecraft.getInstance().player;
-        Mob possessedEntity = getPossessedEntity(player);
-        if (possessedEntity != null) {
-            if (possessedEntity.level() != player.level()) {
-                Helper.LOGGER.info("Move Requiem Possessed Entity at Client");
-                ClientTeleportationManager.moveClientEntityAcrossDimension(
-                    possessedEntity,
-                    ((ClientLevel) player.level()),
-                    player.position()
-                );
-            }
-        }
     }
     
     public static void onPlayerTeleportedServer(ServerPlayer player) {

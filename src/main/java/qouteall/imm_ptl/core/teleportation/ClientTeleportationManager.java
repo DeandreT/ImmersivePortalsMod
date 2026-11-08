@@ -4,7 +4,7 @@ import net.minecraft.util.profiling.Profiler;
 import com.mojang.logging.LogUtils;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import qouteall.imm_ptl.core.platform_shared.PlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.ClientPacketListener;
@@ -35,7 +35,7 @@ import qouteall.imm_ptl.core.ducks.IEEntity;
 import qouteall.imm_ptl.core.ducks.IEParticleManager;
 import qouteall.imm_ptl.core.network.ImmPtlNetworking;
 import qouteall.imm_ptl.core.network.PacketRedirectionClient;
-import qouteall.imm_ptl.core.platform_specific.O_O;
+import qouteall.imm_ptl.core.platform_specific.ClientPlatformOperations;
 import qouteall.imm_ptl.core.portal.Portal;
 import qouteall.imm_ptl.core.portal.PortalExtension;
 import qouteall.imm_ptl.core.portal.animation.ClientPortalAnimationManagement;
@@ -367,7 +367,7 @@ public class ClientTeleportationManager {
         
         ScaleUtils.onClientPlayerTeleported(portal);
         
-        player.connection.send(ClientPlayNetworking.createServerboundPacket(
+        player.connection.send(PlayNetworking.createServerboundPacket(
             new ImmPtlNetworking.TeleportPacket(
                 PortalAPI.clientDimKeyToInt(fromDimension),
                 thisTickEyePos,
@@ -522,7 +522,7 @@ public class ClientTeleportationManager {
         ));
         
         
-        O_O.onPlayerChangeDimensionClient(fromDimension, toDimension);
+        ClientPlatformOperations.onPlayerChangeDimension(fromDimension, toDimension);
     }
     
     private static void changePlayerMotionIfCollidingWithPortal() {

@@ -2,7 +2,7 @@ package qouteall.imm_ptl.core.network;
 
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
+import qouteall.imm_ptl.core.platform_shared.PlatformHooks;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.ProtocolInfo;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -61,7 +61,7 @@ public class PacketRedirection {
         ThreadLocal.withInitial(() -> null);
     
     public static void init() {
-        PayloadTypeRegistry.clientboundPlay().register(Payload.TYPE, Payload.CODEC);
+        PlatformHooks.registerClientbound(Payload.TYPE, Payload.CODEC);
     }
     
     public static void withForceRedirect(ServerLevel world, Runnable func) {

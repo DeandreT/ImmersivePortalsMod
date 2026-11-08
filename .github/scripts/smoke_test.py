@@ -27,6 +27,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -50,6 +51,8 @@ IDLE_SETTLE_SECONDS = 10
 IDLE_SAMPLE_SECONDS = 30
 CLIENT_STAGE_TIMEOUT = 300
 MULTIPLAYER_PORT = 25599
+WORK_MARKER = ".immersive-portals-smoke"
+WORK_MARKER_CONTENT = "Immersive Portals disposable smoke-test directory\n"
 # Must stay under the gap between SMOKE_READY and SMOKE_RELEASE in DATAPACK (30 s).
 CLIENT_SAMPLE_SECONDS = 20
 
@@ -80,7 +83,9 @@ setblock 0 -21 0 minecraft:glass
 execute in minecraft:the_nether run fill -7 98 -7 7 119 7 minecraft:netherrack hollow
 execute in minecraft:the_nether run fill -6 99 -6 6 99 6 minecraft:glowstone
 execute unless entity @e[type=immersive_portals:portal] run function smoke:portal
+schedule function smoke:ready 20t replace
 """,
+    "data/smoke/function/ready.mcfunction": "say SMOKE_SETUP_READY\n",
     # Horizontal 12x12 portal with its front facing up (axisW x axisH = +Y).
     "data/smoke/function/portal.mcfunction": (
         "summon immersive_portals:portal 0.5 -30 0.5 {width:12d,height:12d,thickness:0d,"
@@ -165,13 +170,18 @@ def fetch(url, dest, sha1=None):
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    tmp = dest.with_name(dest.name + ".part")
-    with urllib.request.urlopen(request, timeout=120) as response, open(tmp, "wb") as out:
-        shutil.copyfileobj(response, out)
-    if sha1 and hashlib.sha1(tmp.read_bytes()).hexdigest() != sha1:
-        tmp.unlink()
-        raise SmokeFailure(f"checksum mismatch for {url}")
-    tmp.replace(dest)
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=dest.parent, prefix=dest.name + ".", suffix=".part", delete=False) as out:
+            tmp = Path(out.name)
+            with urllib.request.urlopen(request, timeout=120) as response:
+                shutil.copyfileobj(response, out)
+        if sha1 and hashlib.sha1(tmp.read_bytes()).hexdigest() != sha1:
+            raise SmokeFailure(f"checksum mismatch for {url}")
+        tmp.replace(dest)
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
     return dest
 
 
@@ -199,9 +209,17 @@ def modrinth_jar(slug, version, cache):
 
 def fresh_dir(path):
     path = Path(path)
+    resolved = path.resolve()
+    if path.is_symlink() or resolved in {Path.home().resolve(), ROOT, *ROOT.parents}:
+        raise SmokeFailure(f"refusing unsafe smoke-test directory: {path}")
     if path.exists():
+        marker = path / WORK_MARKER
+        if not path.is_dir() or marker.is_symlink() or not marker.is_file() \
+                or marker.read_text() != WORK_MARKER_CONTENT:
+            raise SmokeFailure(f"refusing to replace a directory not owned by this test: {path}")
         shutil.rmtree(path)
     path.mkdir(parents=True)
+    (path / WORK_MARKER).write_text(WORK_MARKER_CONTENT)
     return path
 
 
@@ -352,9 +370,13 @@ def setup_server(args, props, work, port=0):
 
     (work / "eula.txt").write_text("eula=true\n")
     (work / "server.properties").write_text(
-        "level-type=minecraft\\:flat\nlevel-seed=1\nonline-mode=false\ndifficulty=peaceful\n"
+        "level-type=minecraft\\:flat\n"
+        'generator-settings={"layers":[{"block":"minecraft:bedrock","height":1},'
+        '{"block":"minecraft:dirt","height":2},{"block":"minecraft:grass_block","height":1}],'
+        '"biome":"minecraft:plains","features":false,"lakes":false,"structure_overrides":[]}\n'
+        "level-seed=1\nonline-mode=false\ndifficulty=peaceful\n"
         "view-distance=6\nsimulation-distance=6\nspawn-monsters=false\n"
-        f"spawn-animals=false\nspawn-npcs=false\nwhite-list=false\nserver-port={port}\n"
+        f"spawn-animals=false\nspawn-npcs=false\nwhite-list=false\nserver-ip=127.0.0.1\nserver-port={port}\n"
     )
     world = work / "world"
     world.mkdir()
@@ -384,6 +406,7 @@ def run_server(args, props):
         wait_for(r"\bDone \(\d", log_path, proc, SERVER_BOOT_TIMEOUT, "server startup")
         startup = time.monotonic() - started
         log(f"server started in {startup:.1f}s")
+        wait_for(r"\bSMOKE_SETUP_READY\b", log_path, proc, SERVER_BOOT_TIMEOUT, "the data-pack setup to finish ticking")
         time.sleep(IDLE_SETTLE_SECONDS)
 
         if wants_portal(args):
@@ -506,6 +529,16 @@ def looks_like_nether(args, r, g, b):
     return min(r, g, b) < 170 if args.shader_pack else r >= g * 1.5
 
 
+def check_local_terrain(path, stage):
+    """Require the same actual ground crop before crossing and after returning."""
+    rgb = mean_color(path, "iw*0.1:ih*0.1:iw*0.05:ih*0.1")
+    r, g, b = rgb
+    log(f"colour of the overworld ground {stage}: rgb({r}, {g}, {b})")
+    if max(rgb) < 20 or g <= r or g <= b:
+        raise SmokeFailure(f"the local-terrain crop is not green {stage}; check fixture render distance/camera: {rgb}")
+    return rgb
+
+
 def setup_game_dir(args, props, game, with_mod):
     (game / "options.txt").write_text(CLIENT_OPTIONS.format(render_distance=args.render_distance, max_fps=args.max_fps))
     (game / "config").mkdir()
@@ -556,9 +589,7 @@ def start_client(work, game, command):
 def run_client(args, props):
     # The world comes from a server run so the portal and terrain are the same each time.
     server_args = argparse.Namespace(**{**vars(args), "work": str(Path(args.work) / "server")})
-    work = Path(args.work)
-    if work.exists():
-        shutil.rmtree(work)
+    work = fresh_dir(args.work)
     server_work = run_server(server_args, props)
 
     game = fresh_dir(work / "game")
@@ -603,6 +634,10 @@ def run_client(args, props):
             log(f"colour through the portal: rgb({r}, {g}, {b})")
             if not looks_like_nether(args, r, g, b):
                 raise SmokeFailure("the Nether is not visible through the portal")
+            if not args.shader_pack:
+                # A crop outside the loaded terrain can be sky even before the
+                # first crossing; do not misreport that as a return regression.
+                check_local_terrain(work / "portal-view.png", "before crossing")
 
         if wants_portal(args):
             wait_for(r"SMOKE_RELEASE", log_path, proc, CLIENT_STAGE_TIMEOUT, "the release of the player")
@@ -622,10 +657,8 @@ def run_client(args, props):
                 log(f"colour through the portal after returning: rgb({r}, {g}, {b})")
                 if not looks_like_nether(args, r, g, b):
                     raise SmokeFailure("the portal view did not come back after returning")
-                r, g, b = mean_color(work / "after-return.png", "iw*0.1:ih*0.1:iw*0.05:ih*0.1")
-                log(f"colour of the overworld ground after returning: rgb({r}, {g}, {b})")
-                if not args.shader_pack and (g <= r or g <= b):
-                    raise SmokeFailure("the overworld terrain did not come back after returning")
+                if not args.shader_pack:
+                    check_local_terrain(work / "after-return.png", "after returning")
     finally:
         stop_process(proc)
     # -9: it was still saving when stop_process gave up on it, which only says the machine was busy.
@@ -778,7 +811,7 @@ def main():
     for mode in ("server", "client", "multiplayer"):
         p = sub.add_parser(mode)
         p.add_argument("--jar", help="mod jar to test (required unless --no-mod)")
-        p.add_argument("--work", required=True, help="scratch directory; deleted and recreated")
+        p.add_argument("--work", required=True, help="new scratch directory; only test-owned directories can be replaced")
         p.add_argument("--cache", default=str(Path.home() / ".cache" / "immersive-portals-smoke"))
         p.add_argument("--java", default=shutil.which("java") or "java")
         p.add_argument("--no-mod", action="store_true", help="measure a mod-free baseline")

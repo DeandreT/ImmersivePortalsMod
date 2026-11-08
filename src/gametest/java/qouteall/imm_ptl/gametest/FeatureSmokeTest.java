@@ -43,6 +43,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 
 /**
  * Functional smoke tests for features that go through real game code paths:
@@ -165,6 +166,44 @@ public class FeatureSmokeTest implements FabricClientGameTest {
         if (Boolean.getBoolean("imm_ptl.featureTest.skip")) {
             return;
         }
+        section("command result classification", () -> {
+            var wrapped = net.minecraft.network.chat.Component.empty().append(
+                net.minecraft.network.chat.Component.empty().append(
+                    net.minecraft.network.chat.Component.translatable("command.failed")));
+            check("command capture: wrapped command failures are detected",
+                isTranslation(wrapped, "command.failed"), "");
+            check("command capture: rejection siblings are detected", isTranslation(
+                net.minecraft.network.chat.Component.empty().append(
+                    net.minecraft.network.chat.Component.translatable("argument.entity.notfound.player")),
+                "argument."), "");
+            check("command capture: ordinary messages are not failures", !isTranslation(
+                net.minecraft.network.chat.Component.literal("command.failed"), "command.failed"), "");
+        });
+        if ("customportal".equals(System.getProperty("imm_ptl.featureTest.only"))) {
+            try (TestSingleplayerContext sp = ctx.worldBuilder()
+                .adjustSettings(s -> s.setGameMode(WorldCreationUiState.SelectedGameMode.CREATIVE))
+                .create()) {
+                // Reproduce the larger normal destination search used when a
+                // previous scene has generated any chunk in this region file.
+                sp.getServer().runOnServer(s -> s.getLevel(Level.NETHER).getChunk(62, 62));
+                worldSave = sp.getWorldSave();
+            }
+            boolean warmed = Files.isRegularFile(worldSave.getSaveDirectory().resolve(
+                "dimensions/minecraft/the_nether/region/r.1.1.mca"));
+            check("custom portal gen: the destination region was generated before reopening", warmed, "");
+            if (!warmed) {
+                throw new AssertionError("Custom portal fixture did not preserve the existing-region search condition");
+            }
+            writeTestDatapack();
+            try (TestSingleplayerContext sp = worldSave.open()) {
+                section("custom portal generation (datapack)", () -> customPortalGeneration(ctx, sp.getServer()));
+            }
+            writeReport();
+            if (!failures.isEmpty()) {
+                throw new AssertionError(failures.size() + " feature checks failed:\n" + String.join("\n", failures));
+            }
+            return;
+        }
         String userWorld = System.getProperty("imm_ptl.featureTest.userWorld");
         if (userWorld != null && !userWorld.isEmpty()) {
             userWorld(ctx, Path.of(userWorld), System.getProperty("imm_ptl.featureTest.userWorldPos", "minecraft:overworld 0 100 0 0 0"));
@@ -197,7 +236,7 @@ public class FeatureSmokeTest implements FabricClientGameTest {
             TestServerContext srv = sp.getServer();
             sp.getConnection().waitForChunksRender();
             srv.runCommand("time set noon");
-            srv.runCommand("gamerule doDaylightCycle false");
+            srv.runCommand("gamerule advance_time false");
             setFlying(srv, true);
 
             // gradle -Pimm_ptl.featureTest.only=hidden|terrain: only that scene
@@ -257,7 +296,9 @@ public class FeatureSmokeTest implements FabricClientGameTest {
             catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
-            try (TestDedicatedServerContext server = ctx.worldBuilder().createServer();
+            Properties serverProperties = new Properties();
+            serverProperties.setProperty("server-ip", "127.0.0.1");
+            try (TestDedicatedServerContext server = ctx.worldBuilder().createServer(serverProperties);
                  TestDedicatedServerConnection connection = server.connect()
             ) {
                 connection.waitForChunksRender();
@@ -457,16 +498,19 @@ public class FeatureSmokeTest implements FabricClientGameTest {
         ctx.waitTicks(40);
         screenshot(ctx, "end_portal_from_above");
 
-        srv.runOnServer(s -> s.getPlayerList().getPlayers().forEach(p -> {
-            p.getAbilities().flying = false;
-            p.onUpdateAbilities();
-        }));
+        // Hold the fixture above the opening until the real client acknowledges
+        // the placement correction. Falling while that correction is pending is
+        // correctly refused by the production teleport validator.
+        setFlying(srv, true);
+        ctx.runOnClient(mc -> mc.player.getAbilities().flying = true);
         srv.runCommand(String.format(Locale.ROOT, "tp Player0 %.1f %d %.1f 0 90", cx + 0.5, y + 3, cz + 0.5));
+        awaitPlacement(ctx, srv, Level.OVERWORLD, new Vec3(cx + 0.5, y + 3, cz + 0.5));
+        setFlying(srv, false);
         ctx.runOnClient(mc -> {
             mc.player.getAbilities().flying = false;
             mc.player.onUpdateAbilities();
         });
-        boolean inEnd = waitFor(ctx, 400, () -> ctx.computeOnClient(mc -> mc.level != null && mc.level.dimension() == Level.END));
+        boolean inEnd = waitFor(ctx, 400, () -> settledInDimension(ctx, srv, Level.END));
         check("end: falling into the end portal enters the End", inEnd,
             "client dim " + ctx.computeOnClient(mc -> mc.level.dimension().identifier()));
         if (inEnd) {
@@ -508,12 +552,15 @@ public class FeatureSmokeTest implements FabricClientGameTest {
         }
         BlockPos p = portalBlock[0];
 
+        setFlying(srv, true);
+        ctx.runOnClient(mc -> mc.player.getAbilities().flying = true);
         srv.runCommand(String.format(Locale.ROOT, "execute in minecraft:the_end run tp Player0 %d %d %d 0 50", p.getX(), p.getY() + 4, p.getZ() - 6));
         ctx.waitTicks(40);
         screenshot(ctx, "end_exit_portal");
 
         // fall into it
         srv.runCommand(String.format(Locale.ROOT, "execute in minecraft:the_end run tp Player0 %.1f %d %.1f 0 90", p.getX() + 0.5, p.getY() + 3, p.getZ() + 0.5));
+        awaitPlacement(ctx, srv, Level.END, new Vec3(p.getX() + 0.5, p.getY() + 3, p.getZ() + 0.5));
         ctx.runOnClient(mc -> {
             mc.player.getAbilities().flying = false;
             mc.player.onUpdateAbilities();
@@ -1360,7 +1407,7 @@ public class FeatureSmokeTest implements FabricClientGameTest {
         // the stack's portals are at the build limits: the sky above and the bottom of the world.
         // Each pose is shot twice, 3 ticks apart, into a/ and b/: large differences with a still camera = flicker.
         runIntegratedServerCommand(ctx, "time set noon");
-        runIntegratedServerCommand(ctx, "gamerule doDaylightCycle false");
+        runIntegratedServerCommand(ctx, "gamerule advance_time false");
         runIntegratedServerCommand(ctx, "fill -4 -63 -4 4 -52 4 minecraft:air");
         for (String[] pose : new String[][]{
             {"dim_stack_up_from_surface", "0 100 0 0 -70"},
@@ -1416,8 +1463,11 @@ public class FeatureSmokeTest implements FabricClientGameTest {
     }
 
     private static boolean isTranslation(net.minecraft.network.chat.Component c, String keyPrefix) {
-        return c.getContents() instanceof net.minecraft.network.chat.contents.TranslatableContents t
-            && t.getKey().startsWith(keyPrefix);
+        if (c.getContents() instanceof net.minecraft.network.chat.contents.TranslatableContents t
+            && t.getKey().startsWith(keyPrefix)) {
+            return true;
+        }
+        return c.getSiblings().stream().anyMatch(sibling -> isTranslation(sibling, keyPrefix));
     }
 
     // a test portal at (800.5, y + 2, 800.5) facing +Z, 2 x 3, leading 20 blocks to +X
@@ -1750,19 +1800,36 @@ public class FeatureSmokeTest implements FabricClientGameTest {
      */
     private void breakableMirror(ClientGameTestContext ctx, TestServerContext srv) {
         // mirror creation is opt-in now (off by default): enable it just for this check
-        ctx.runOnClient(mc -> qouteall.imm_ptl.core.IPGlobal.enableMirrorCreation = true);
-        int y = groundY(srv, Level.OVERWORLD, 620, 630);
-        srv.runCommand(String.format(Locale.ROOT, "fill 620 %d 630 622 %d 630 minecraft:glass", y, y + 2));
-        srv.runCommand(String.format(Locale.ROOT, "tp Player0 621.5 %d 626.5 0 0", y));
-        ctx.waitTicks(10);
-        useItemOn(srv, new ItemStack(Items.FLINT_AND_STEEL), new BlockPos(621, y + 1, 630), Direction.NORTH);
-        ctx.waitTicks(10);
-        int mirrors = srv.computeOnServer(s -> s.overworld().getEntitiesOfClass(
-            qouteall.imm_ptl.core.portal.BreakableMirror.class, new AABB(618, y - 2, 628, 625, y + 5, 633)).size());
-        check("mirror: flint and steel on glass creates a mirror", mirrors >= 1, "mirrors " + mirrors);
-        ctx.runOnClient(mc -> qouteall.imm_ptl.core.IPGlobal.enableMirrorCreation = false);
-        ctx.waitTicks(20);
-        screenshot(ctx, "tools_mirror");
+        boolean previousEnabled = srv.computeOnServer(s -> qouteall.imm_ptl.core.IPGlobal.enableMirrorCreation);
+        srv.runOnServer(s -> qouteall.imm_ptl.core.IPGlobal.enableMirrorCreation = true);
+        try {
+            int y = groundY(srv, Level.OVERWORLD, 620, 630);
+            srv.runCommand(String.format(Locale.ROOT, "fill 620 %d 630 622 %d 630 minecraft:glass", y, y + 2));
+            srv.runCommand(String.format(Locale.ROOT, "tp Player0 621.5 %d 626.5 0 0", y));
+            BlockPos glassPos = new BlockPos(621, y + 1, 630);
+            // Loading terrain alone does not make this new location's entity
+            // sections accessible. Wait for normal player-driven readiness before
+            // exercising the item hook and requiring a visible mirror.
+            boolean ready = waitFor(ctx, 400, () -> srv.computeOnServer(s ->
+                s.overworld().areEntitiesActuallyLoadedAndTicking(
+                    net.minecraft.world.level.ChunkPos.containing(glassPos)))
+                && ctx.computeOnClient(mc -> mc.level != null && mc.level.dimension() == Level.OVERWORLD
+                    && mc.level.getChunkSource().hasChunk(glassPos.getX() >> 4, glassPos.getZ() >> 4)));
+            check("mirror: the glass scene is loaded and entity-ticking before item use", ready, "");
+            if (!ready) {
+                return;
+            }
+            useItemOn(srv, new ItemStack(Items.FLINT_AND_STEEL), glassPos, Direction.NORTH);
+            ctx.waitTicks(10);
+            int mirrors = srv.computeOnServer(s -> s.overworld().getEntitiesOfClass(
+                qouteall.imm_ptl.core.portal.BreakableMirror.class, new AABB(618, y - 2, 628, 625, y + 5, 633)).size());
+            check("mirror: flint and steel on glass creates a mirror", mirrors >= 1, "mirrors " + mirrors);
+            ctx.waitTicks(20);
+            screenshot(ctx, "tools_mirror");
+        }
+        finally {
+            srv.runOnServer(s -> qouteall.imm_ptl.core.IPGlobal.enableMirrorCreation = previousEnabled);
+        }
     }
 
     /**
@@ -1825,7 +1892,7 @@ public class FeatureSmokeTest implements FabricClientGameTest {
                     net.minecraft.gizmos.SimpleGizmoCollector collector = new net.minecraft.gizmos.SimpleGizmoCollector();
                     Vec3 cam = mc.gameRenderer.mainCamera().position();
                     try (var ignored = net.minecraft.gizmos.Gizmos.withCollector(collector)) {
-                        qouteall.imm_ptl.peripheral.wand.PortalWandItem.clientRender(
+                        qouteall.imm_ptl.peripheral.wand.PortalWandItemClient.render(
                             mc.player, held, new com.mojang.blaze3d.vertex.PoseStack(), cam.x, cam.y, cam.z
                         );
                     }
@@ -1902,16 +1969,72 @@ public class FeatureSmokeTest implements FabricClientGameTest {
         ctx.waitTicks(20);
         useItemOn(srv, new ItemStack(Items.STICK), new BlockPos(761, y, 760), Direction.UP);
         AABB box = new AABB(755, y - 2, 755, 770, y + 8, 765);
-        boolean created = waitFor(ctx, 300, () -> countPortals(srv, Level.OVERWORLD, box) >= 1);
+        // An existing destination region requires the production 361-chunk
+        // search area to finish loading; keep the same bounded generation wait
+        // as other Nether fixtures, without changing its search radius/policy.
+        boolean created = waitFor(ctx, 1200, () -> countPortals(srv, Level.OVERWORLD, box) >= 2);
         check("custom portal gen: using a stick on the gold frame creates a portal", created,
-            "portals " + countPortals(srv, Level.OVERWORLD, box));
+            srv.computeOnServer(s -> "portals " + s.overworld().getEntitiesOfClass(Portal.class, box).size()
+                + ", loading indicators " + s.overworld().getEntitiesOfClass(
+                    qouteall.imm_ptl.core.portal.LoadingIndicatorEntity.class, box)
+                    .stream().map(indicator -> indicator.getText().toString()).toList()));
         if (created) {
+            List<Portal> sourcePortals = srv.computeOnServer(s -> s.overworld().getEntitiesOfClass(Portal.class, box));
+            check("custom portal gen: both source faces have the datapack's generation tag",
+                sourcePortals.size() == 2 && sourcePortals.stream().allMatch(
+                    p -> "immptl_test:gold_portal".equals(p.portalTag)), "portals " + sourcePortals);
             ResourceKey<Level> dest = srv.computeOnServer(s -> s.overworld()
                 .getEntitiesOfClass(Portal.class, box).get(0).getDestDim());
             check("custom portal gen: the portal leads to the nether", dest == Level.NETHER, "dest " + dest.identifier());
+            String destinationProblem = srv.computeOnServer(s ->
+                customDestinationPairProblem(s.getLevel(Level.NETHER), sourcePortals));
+            check("custom portal gen: both tagged destination faces are registered and reverse-linked to the source",
+                destinationProblem.isEmpty(), destinationProblem);
             ctx.waitTicks(60);
             screenshot(ctx, "tools_custom_portal_gen");
         }
+    }
+
+    private static String customDestinationPairProblem(ServerLevel destination, List<Portal> sourcePortals) {
+        var expected = new java.util.HashMap<java.util.UUID,
+            qouteall.imm_ptl.core.portal.nether_portal.BreakablePortalEntity>();
+        for (Portal portal : sourcePortals) {
+            if (!(portal instanceof qouteall.imm_ptl.core.portal.nether_portal.BreakablePortalEntity source)
+                || source.reversePortalId == null || expected.put(source.reversePortalId, source) != null) {
+                return "Source faces do not name two distinct destination UUIDs";
+            }
+        }
+        if (expected.size() != 2) {
+            return "Expected two source faces, got " + expected.size();
+        }
+        var manager = (qouteall.imm_ptl.core.mixin.common.entity_sync.registration.RegistrationManagerAccessor)
+            ((qouteall.imm_ptl.core.ducks.IEServerWorld) destination).ip_getEntityManager();
+        var storage = (qouteall.imm_ptl.core.mixin.common.entity_sync.registration.RegistrationSectionStorageAccessor)
+            manager.ip_registrationSections();
+        int matched = 0;
+        // Generation/registration is not a visibility assertion. Destination
+        // sections can still be HIDDEN while normal remote tracking catches up.
+        // Enumerate existing persistent sections without creating or promoting any.
+        for (var section : storage.ip_registrationSections().values()) {
+            for (var entity : section.getEntities().toList()) {
+                var source = expected.get(entity.getUUID());
+                if (source == null) {
+                    continue;
+                }
+                matched++;
+                if (!(entity instanceof qouteall.imm_ptl.core.portal.nether_portal.BreakablePortalEntity portal)
+                    || qouteall.imm_ptl.core.platform_shared.EntityRegistration.inspect(destination, entity)
+                        != qouteall.imm_ptl.core.platform_shared.EntityRegistration.RegistrationState.REGISTERED
+                    || !"immptl_test:gold_portal".equals(portal.portalTag)
+                    || portal.getDestDim() != Level.OVERWORLD
+                    || !source.getUUID().equals(portal.reversePortalId)
+                    || portal.getDestPos().distanceTo(source.getOriginPos()) > 0.000001
+                    || portal.getOriginPos().distanceTo(source.getDestPos()) > 0.000001) {
+                    return "Destination face has incomplete registration, tag, position or reciprocal identity: " + entity;
+                }
+            }
+        }
+        return matched == 2 ? "" : "Persistent destination face matches " + matched + ", expected 2";
     }
 
     // chunks within the render distance of the player that are not in the client chunk cache (max 10 listed)
@@ -1945,6 +2068,24 @@ public class FeatureSmokeTest implements FabricClientGameTest {
             p.getAbilities().flying = flying;
             p.onUpdateAbilities();
         }));
+    }
+
+    private boolean settledInDimension(ClientGameTestContext ctx, TestServerContext srv, ResourceKey<Level> dimension) {
+        return ctx.computeOnClient(mc -> mc.level != null && mc.level.dimension() == dimension)
+            && srv.computeOnServer(s -> serverPlayer(s).level().dimension() == dimension
+                && !((qouteall.imm_ptl.core.ducks.IEServerPlayNetworkHandler) serverPlayer(s).connection)
+                    .ip_hasAwaitingTeleport());
+    }
+
+    private void awaitPlacement(
+        ClientGameTestContext ctx, TestServerContext srv, ResourceKey<Level> dimension, Vec3 position
+    ) {
+        boolean acknowledged = waitFor(ctx, 200, () -> settledInDimension(ctx, srv, dimension)
+            && ctx.computeOnClient(mc -> mc.player.position().distanceTo(position) < 0.25)
+            && srv.computeOnServer(s -> serverPlayer(s).position().distanceTo(position) < 0.25));
+        if (!acknowledged) {
+            throw new AssertionError("Real client did not acknowledge the feature fixture's placement correction");
+        }
     }
 
     /**
@@ -2047,6 +2188,10 @@ public class FeatureSmokeTest implements FabricClientGameTest {
             java.io.StringWriter trace = new java.io.StringWriter();
             e.printStackTrace(new java.io.PrintWriter(trace));
             trace.toString().lines().limit(12).forEach(l -> results.add("    " + l));
+        }
+        finally {
+            writeReport();
+            System.out.println("[ImmPtl feature] Finished " + name + "; recorded failures=" + failures.size());
         }
     }
 

@@ -1,0 +1,31 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven { url = 'https://maven.neoforged.net/releases' }
+    }
+}
+
+// Standalone by design: no production settings/build includes this development mod.
+rootProject.name = 'immersive-portals-native-client-test'
+
+// Record the single-use daemon before dependency resolution/compilation can block.
+def ownedRun = providers.gradleProperty('clientRunDir').orNull
+if (ownedRun != null) {
+    def directory = file(ownedRun).canonicalFile
+    def nonce = providers.gradleProperty('clientNonce').getOrElse('')
+    def marker = new File(directory, '.ip-native-client-owned')
+    def report = file(providers.gradleProperty('clientReportDir').getOrElse('build/disabled-report')).canonicalFile
+    def reportMarker = new File(report, '.ip-native-client-owned')
+    if (directory.parentFile != file('/tmp/opencode').canonicalFile ||
+        !directory.name.startsWith('ip-native-client-world-') || nonce.size() < 32 ||
+        !marker.isFile() || marker.text.trim() != nonce ||
+        report.parentFile != directory.parentFile || !report.name.startsWith('ip-native-client-report-') ||
+        !reportMarker.isFile() || reportMarker.text.trim() != nonce) {
+        throw new GradleException('Native client runs require the explicit owned-world Python supervisor')
+    }
+    def stat = new File('/proc/self/stat').text
+    new File(directory, '.ip-native-client-gradle.json').text = groovy.json.JsonOutput.toJson([
+        pid: ProcessHandle.current().pid(),
+        start: stat.substring(stat.lastIndexOf(')') + 1).trim().split(/\s+/)[19], nonce: nonce
+    ])
+}

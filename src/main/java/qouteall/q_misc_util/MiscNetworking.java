@@ -4,9 +4,9 @@ import com.google.common.collect.ImmutableMap;
 import com.mojang.logging.LogUtils;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import qouteall.imm_ptl.core.platform_shared.PlayNetworking;
+import qouteall.imm_ptl.core.platform_shared.ClientPlatformHooks;
+import qouteall.imm_ptl.core.platform_shared.PlatformHooks;
 import net.minecraft.core.Registry;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
@@ -87,7 +87,7 @@ public class MiscNetworking {
         }
         
         public static Packet<ClientCommonPacketListener> createPacket(MinecraftServer server) {
-            return ServerPlayNetworking.createClientboundPacket(
+            return PlayNetworking.createClientboundPacket(
                 DimIdSyncPacket.createFromServer(server)
             );
         }
@@ -152,7 +152,7 @@ public class MiscNetworking {
     
     @Environment(EnvType.CLIENT)
     public static void initClient() {
-        ClientPlayNetworking.registerGlobalReceiver(
+        ClientPlatformHooks.registerClientReceiver(
             DimIdSyncPacket.TYPE,
             (p, c) -> {
                 p.handle();
@@ -161,7 +161,7 @@ public class MiscNetworking {
     }
     
     public static void init() {
-        PayloadTypeRegistry.clientboundPlay().register(
+        PlatformHooks.registerClientbound(
             DimIdSyncPacket.TYPE, DimIdSyncPacket.CODEC
         );
     }

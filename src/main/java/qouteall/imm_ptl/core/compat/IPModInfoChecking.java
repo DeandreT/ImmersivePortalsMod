@@ -3,9 +3,8 @@ package qouteall.imm_ptl.core.compat;
 import com.mojang.logging.LogUtils;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
-import net.fabricmc.loader.api.FabricLoader;
-import net.fabricmc.loader.api.ModContainer;
+import qouteall.imm_ptl.core.platform_shared.ServerLifecycleEvents;
+import qouteall.imm_ptl.core.platform_shared.ModPlatform;
 import net.minecraft.ChatFormatting;
 import net.minecraft.util.Util;
 import net.minecraft.client.Minecraft;
@@ -229,11 +228,8 @@ public class IPModInfoChecking {
         IPGlobal.CLIENT_TASK_LIST.addTask(MyTaskList.withDelayCondition(
             () -> Minecraft.getInstance().level == null,
             MyTaskList.oneShotTask(() -> {
-                if (IPConfig.getConfig().shouldDisplayWarning("many_mods") && !FabricLoader.getInstance().isDevelopmentEnvironment()) {
-                    List<ModContainer> topLevelMods = FabricLoader.getInstance().getAllMods().stream()
-                        .filter(modContainer -> modContainer.getContainingMod().isEmpty()).toList();
-                    
-                    if (topLevelMods.size() > 20) {
+                if (IPConfig.getConfig().shouldDisplayWarning("many_mods") && !ModPlatform.isDevelopmentEnvironment()) {
+                    if (ModPlatform.getTopLevelModCount() > 20) {
                         CHelper.printChat(Component.literal(
                             "[Immersive Portals] WARNING: You are using many mods. It's likely that one of them has compatibility issues with Immersive Portals. " +
                                 "If you are sure that there is no compatibility issue, disable this warning."

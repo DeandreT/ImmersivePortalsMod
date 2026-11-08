@@ -28,6 +28,7 @@ import qouteall.imm_ptl.core.compat.sodium_compatibility.SodiumInterface;
 import qouteall.imm_ptl.core.ducks.IEMinecraftClient;
 import qouteall.imm_ptl.core.miscellaneous.IPVanillaCopy;
 import qouteall.imm_ptl.core.platform_specific.O_O;
+import qouteall.imm_ptl.core.platform_specific.ClientPlatformOperations;
 import qouteall.q_misc_util.my_util.SignalArged;
 
 import java.util.Arrays;
@@ -79,7 +80,7 @@ public class ImmPtlClientChunkMap extends ClientChunkCache {
             });
             onChunkRemoved(chunk);
 
-            O_O.postClientChunkUnloadEvent(chunk);
+            ClientPlatformOperations.postChunkUnload(chunk);
             this.level.unload(chunk);
             SodiumInterface.invoker.onClientChunkUnloaded(level, chunkPos.x(), chunkPos.z());
             clientChunkUnloadSignal.emit(chunk);
@@ -164,7 +165,7 @@ public class ImmPtlClientChunkMap extends ClientChunkCache {
         }
         
         this.level.onChunkLoaded(new ChunkPos(x, z));
-        O_O.postClientChunkLoadEvent(worldChunk);
+        ClientPlatformOperations.postChunkLoad(worldChunk);
         SodiumInterface.invoker.onClientChunkLoaded(level, x, z);
         clientChunkLoadSignal.emit(worldChunk);
         

@@ -1,8 +1,7 @@
 package qouteall.imm_ptl.core.block_manipulation;
 
 import com.mojang.logging.LogUtils;
-import net.fabricmc.fabric.api.event.Event;
-import net.fabricmc.fabric.api.event.EventFactory;
+import qouteall.imm_ptl.core.platform_shared.Event;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.FriendlyByteBuf;
@@ -57,7 +56,7 @@ public class BlockManipulationServer {
      * The result will be ANDed.
      */
     public static final Event<Predicate<Player>> canDoCrossPortalInteractionEvent =
-        EventFactory.createArrayBacked(Predicate.class,
+        Event.createArrayBacked(Predicate.class,
             handlers -> player -> {
                 for (Predicate<Player> handler : handlers) {
                     if (!handler.test(player)) {

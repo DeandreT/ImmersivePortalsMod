@@ -1,6 +1,5 @@
 package qouteall.dimlib.mixin.client;
 
-import eu.midnightdust.lib.config.MidnightConfig;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Checkbox;
 import net.minecraft.client.gui.components.MultiLineLabel;
@@ -15,7 +14,6 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import qouteall.dimlib.DimLibEntry;
 import qouteall.dimlib.config.DimLibConfig;
 
 import java.util.Objects;
@@ -64,7 +62,7 @@ public class MixinBackupConfirmScreen extends Screen {
                     ),
                     button -> {
                         DimLibConfig.suppressExperimentalWarning = true;
-                        MidnightConfig.write(DimLibEntry.MODID);
+                        DimLibConfig.save();
                         
                         this.onProceed.proceed(false, this.eraseCache.selected());
                     }

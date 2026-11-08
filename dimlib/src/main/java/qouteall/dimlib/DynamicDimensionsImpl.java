@@ -1,18 +1,13 @@
 package qouteall.dimlib;
 
 import com.google.common.collect.ImmutableList;
-import com.mojang.serialization.DynamicOps;
-import com.mojang.serialization.Lifecycle;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
 import net.minecraft.core.MappedRegistry;
 import net.minecraft.core.RegistrationInfo;
 import net.minecraft.core.Registry;
-import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.common.ClientCommonPacketListener;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
@@ -20,11 +15,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.BiomeManager;
-import net.minecraft.world.level.border.BorderChangeListener;
 import net.minecraft.world.level.border.WorldBorder;
 import net.minecraft.world.level.dimension.LevelStem;
-import net.minecraft.world.level.levelgen.WorldGenSettings;
-import net.minecraft.world.level.levelgen.WorldOptions;
 import net.minecraft.world.level.storage.DerivedLevelData;
 import net.minecraft.world.level.storage.ServerLevelData;
 import net.minecraft.world.level.storage.WorldData;
@@ -34,7 +26,7 @@ import org.apache.logging.log4j.Logger;
 import qouteall.dimlib.api.DimensionAPI;
 import qouteall.dimlib.ducks.IMappedRegistry;
 import qouteall.dimlib.ducks.IMinecraftServer;
-import qouteall.dimlib.mixin.common.IEWorldBorder;
+import qouteall.dimlib.platform.DimLibPlatform;
 
 import java.io.IOException;
 import java.util.HashSet;
@@ -101,27 +93,31 @@ public class DynamicDimensionsImpl {
         
         ((IMinecraftServer) server).dimlib_addDimensionToWorldMap(dimensionResourceKey, newWorld);
         
-        /**
-         * register it into registry, so it will be saved in
-         * {@link WorldGenSettings#encode(DynamicOps, WorldOptions, RegistryAccess)} ,
-         * so it will be saved into level.dat
-         * */
+        // Keep the live registry and the saved generation-settings snapshot in sync.
         Registry<LevelStem> levelStemRegistry = server.registryAccess().lookupOrThrow(Registries.LEVEL_STEM);
+        boolean wasFrozen = ((IMappedRegistry) levelStemRegistry).dimlib_getIsFrozen();
         ((IMappedRegistry) levelStemRegistry).dimlib_setIsFrozen(false);
-        ((MappedRegistry<LevelStem>) levelStemRegistry).register(
-            ResourceKey.create(Registries.LEVEL_STEM, dimensionId),
-            levelStem,
-            RegistrationInfo.BUILT_IN // use built-in registration info for now
-        );
-        ((IMappedRegistry) levelStemRegistry).dimlib_setIsFrozen(true);
+        try {
+            Holder.Reference<LevelStem> holder = ((MappedRegistry<LevelStem>) levelStemRegistry).register(
+                ResourceKey.create(Registries.LEVEL_STEM, dimensionId),
+                levelStem,
+                RegistrationInfo.BUILT_IN // use built-in registration info for now
+            );
+            DimensionImpl.bindLevelStem(holder, levelStem);
+            DimensionImpl.updateSavedDimensions(server);
+        }
+        finally {
+            ((IMappedRegistry) levelStemRegistry).dimlib_setIsFrozen(wasFrozen);
+        }
+        DimLibPlatform.onDimensionLoad(newWorld);
         
         LOGGER.info("Added Dimension {}", dimensionId);
         
-        var dimSyncPacket = ServerPlayNetworking.createClientboundPacket(
-            DimLibNetworking.DimSyncPacket.createPacket(server)
-        );
+        var dimSyncPacket = DimLibNetworking.createClientboundPacket(server);
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            player.connection.send(dimSyncPacket);
+            if (DimLibPlatform.canSendDimensionSync(player)) {
+                player.connection.send(dimSyncPacket);
+            }
         }
         
         DimensionAPI.SERVER_DIMENSION_DYNAMIC_UPDATE_EVENT.invoker().run(server, server.levelKeys());
@@ -196,23 +192,25 @@ public class DynamicDimensionsImpl {
             
             try {
                 world.close();
+                DimLibPlatform.onDimensionUnload(world);
             }
             catch (IOException e) {
                 LOGGER.error("Error when closing world", e);
             }
             
-            // force remove it from registry, so it will not be saved into level.dat
+            // Remove it from both the live registry and saved generation settings.
             Registry<LevelStem> levelStemRegistry = server.registryAccess()
                 .lookupOrThrow(Registries.LEVEL_STEM);
             ((IMappedRegistry) levelStemRegistry).dimlib_forceRemove(dimension.identifier());
+            DimensionImpl.updateSavedDimensions(server);
             
             LOGGER.info("Removed Dimension {}", dimension.identifier());
             
-            Packet<ClientCommonPacketListener> dimSyncPacket = ServerPlayNetworking.createClientboundPacket(
-                DimLibNetworking.DimSyncPacket.createPacket(server)
-            );
+            var dimSyncPacket = DimLibNetworking.createClientboundPacket(server);
             for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-                player.connection.send(dimSyncPacket);
+                if (DimLibPlatform.canSendDimensionSync(player)) {
+                    player.connection.send(dimSyncPacket);
+                }
             }
             
             DimensionAPI.SERVER_DIMENSION_DYNAMIC_UPDATE_EVENT.invoker().run(server, server.levelKeys());

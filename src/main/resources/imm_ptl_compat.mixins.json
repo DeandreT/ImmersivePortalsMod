@@ -11,6 +11,7 @@
     "sodium.IESodiumWorldRendererAccessor",
     "iris.MixinIrisTransformPatcher",
     "iris.MixinIrisRenderingPipeline_PortalSurfaces",
+    "iris.MixinIrisRenderTargets",
     "iris.MixinIrisShaderCreator",
     "iris.MixinIrisCommonUniforms",
     "iris.MixinIrisHardcodedCustomUniforms",

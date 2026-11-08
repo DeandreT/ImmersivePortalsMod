@@ -22,20 +22,16 @@
   "environment": "*",
   "entrypoints": {
     "main": [
-      "qouteall.imm_ptl.peripheral.platform_specific.PeripheralModEntry",
-      "qouteall.imm_ptl.core.platform_specific.IPModEntry",
-      "qouteall.q_misc_util.MiscUtilModEntry"
+      "qouteall.imm_ptl.core.platform_specific.FabricModEntry"
     ],
     "client": [
-      "qouteall.imm_ptl.peripheral.platform_specific.PeripheralModEntryClient",
-      "qouteall.imm_ptl.core.platform_specific.IPModEntryClient",
-      "qouteall.q_misc_util.MiscUtilModEntryClient"
+      "qouteall.imm_ptl.core.platform_specific.FabricModEntryClient"
     ],
     "sodium:config_api_user": [
       "qouteall.imm_ptl.core.compat.sodium_compatibility.IPSodiumConfigEntryPoint"
     ],
     "server": [
-      "qouteall.imm_ptl.core.platform_specific.IPModEntryDedicatedServer"
+      "qouteall.imm_ptl.core.platform_specific.FabricModEntryServer"
     ],
     "modmenu": [
       "qouteall.imm_ptl.core.platform_specific.IPModMenuConfigEntry"

@@ -167,6 +167,7 @@ public class PortalManipulation {
         
         newPortal.setWidth(portal.getWidth());
         newPortal.setHeight(portal.getHeight());
+        newPortal.setThickness(portal.getThickness());
         newPortal.setAxisW(portal.getAxisW());
         newPortal.setAxisH(portal.getAxisH());
         

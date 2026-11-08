@@ -1,7 +1,6 @@
 package qouteall.imm_ptl.core.render.renderer;
 
-import net.fabricmc.fabric.api.event.Event;
-import net.fabricmc.fabric.api.event.EventFactory;
+import qouteall.imm_ptl.core.platform_shared.Event;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.world.phys.Vec3;
@@ -28,7 +27,7 @@ public abstract class PortalRenderer {
      * All listeners' results are ANDed.
      */
     public static final Event<Predicate<Portal>> PORTAL_RENDERING_PREDICATE =
-        EventFactory.createArrayBacked(
+        Event.createArrayBacked(
             Predicate.class,
             (listeners) -> (portal) -> {
                 for (Predicate<Portal> listener : listeners) {

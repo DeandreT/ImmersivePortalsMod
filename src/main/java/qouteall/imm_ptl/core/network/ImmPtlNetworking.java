@@ -1,13 +1,8 @@
 package qouteall.imm_ptl.core.network;
 
-import com.mojang.logging.LogUtils;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.multiplayer.ClientPacketListener;
+import qouteall.imm_ptl.core.platform_shared.PlatformHooks;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
@@ -19,29 +14,17 @@ import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntitySpawnReason;
-import net.minecraft.world.entity.EntitySpawnRequest;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
-import org.apache.commons.lang3.Validate;
 import org.jetbrains.annotations.NotNull;
-import org.slf4j.Logger;
-import qouteall.imm_ptl.core.ClientWorldLoader;
-import qouteall.imm_ptl.core.IPGlobal;
 import qouteall.imm_ptl.core.McHelper;
 import qouteall.imm_ptl.core.api.PortalAPI;
-import qouteall.imm_ptl.core.portal.Portal;
-import qouteall.imm_ptl.core.portal.global_portals.GlobalPortalStorage;
 import qouteall.imm_ptl.core.teleportation.ServerTeleportationManager;
 
-import java.util.Objects;
 import java.util.UUID;
 
 public class ImmPtlNetworking {
-    
-    private static final Logger LOGGER = LogUtils.getLogger();
     
     // client to server
     public static record TeleportPacket(
@@ -117,9 +100,7 @@ public class ImmPtlNetworking {
         
         @Environment(EnvType.CLIENT)
         public void handle() {
-            ResourceKey<Level> dim = PortalAPI.clientIntToDimKey(dimensionId);
-            
-            GlobalPortalStorage.receiveGlobalPortalSync(dim, data);
+            ImmPtlNetworkingClient.handleGlobalPortalSync(this);
         }
         
         @Override
@@ -176,59 +157,11 @@ public class ImmPtlNetworking {
         }
         
         /**
-         * {@link ClientPacketListener#handleAddEntity(ClientboundAddEntityPacket)}
+         * Client portal entity creation and update.
          */
         @Environment(EnvType.CLIENT)
         public void handle() {
-//            Helper.LOGGER.info("PortalSyncPacket handle {}", RenderStates.frameIndex);
-            
-            ResourceKey<Level> dimension = PortalAPI.clientIntToDimKey(dimensionId);
-            ClientLevel world = ClientWorldLoader.getWorld(dimension);
-            
-            Entity existing = world.getEntity(id);
-            
-            if (existing instanceof Portal existingPortal) {
-                // update existing portal (handles default animation)
-                if (!Objects.equals(existingPortal.getUUID(), uuid)) {
-                    LOGGER.error("UUID mismatch when syncing portal {} {}", existingPortal, uuid);
-                    return;
-                }
-                
-                if (existingPortal.getType() != entityType) {
-                    LOGGER.error(
-                        "Entity type mismatch when syncing portal {} {}", existingPortal, entityType
-                    );
-                    return;
-                }
-                
-                existingPortal.acceptDataSync(new Vec3(x, y, z), extraData);
-            }
-            else {
-                // spawn new portal
-                Entity entity = entityType.create(world, new EntitySpawnRequest(EntitySpawnReason.LOAD, true));
-                Validate.notNull(entity, "Entity type is null");
-                
-                if (!(entity instanceof Portal portal)) {
-                    LOGGER.error("Spawned entity is not a portal. {} {}", entity, entityType);
-                    return;
-                }
-                
-                entity.setId(id);
-                entity.setUUID(uuid);
-                entity.syncPacketPositionCodec(x, y, z);
-                entity.snapTo(x, y, z);
-                
-                portal.readPortalDataFromNbt(extraData);
-                
-                world.addEntity(entity);
-                
-                ClientWorldLoader.getWorld(portal.getDestDim());
-                Portal.CLIENT_PORTAL_SPAWN_EVENT.invoker().accept(portal);
-                
-                if (IPGlobal.clientPortalLoadDebug) {
-                    LOGGER.info("Portal loaded to client {}", portal);
-                }
-            }
+            ImmPtlNetworkingClient.handlePortalSync(this);
         }
         
         @Override
@@ -238,34 +171,26 @@ public class ImmPtlNetworking {
     }
     
     public static void init() {
-        PayloadTypeRegistry.serverboundPlay().register(
+        PlatformHooks.registerServerbound(
             TeleportPacket.TYPE, TeleportPacket.CODEC
         );
         
-        PayloadTypeRegistry.clientboundPlay().register(
+        PlatformHooks.registerClientbound(
             GlobalPortalSyncPacket.TYPE, GlobalPortalSyncPacket.CODEC
         );
         
-        PayloadTypeRegistry.clientboundPlay().register(
+        PlatformHooks.registerClientbound(
             PortalSyncPacket.TYPE, PortalSyncPacket.CODEC
         );
         
-        ServerPlayNetworking.registerGlobalReceiver(
+        PlatformHooks.registerServerReceiver(
             TeleportPacket.TYPE,
             (packet, c) -> packet.handle(c.player())
         );
     }
     
     public static void initClient() {
-        ClientPlayNetworking.registerGlobalReceiver(
-            GlobalPortalSyncPacket.TYPE,
-            (packet, c) -> packet.handle()
-        );
-        
-        ClientPlayNetworking.registerGlobalReceiver(
-            PortalSyncPacket.TYPE,
-            (packet, c) -> packet.handle()
-        );
+        ImmPtlNetworkingClient.init();
     }
     
 }

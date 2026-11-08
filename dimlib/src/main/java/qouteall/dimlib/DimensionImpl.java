@@ -1,21 +1,26 @@
 package qouteall.dimlib;
 
-import com.mojang.serialization.Lifecycle;
 import net.minecraft.core.MappedRegistry;
+import net.minecraft.core.Holder;
 import net.minecraft.core.RegistrationInfo;
 import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.dimension.LevelStem;
-import net.minecraft.world.level.levelgen.WorldOptions;
-import net.minecraft.world.level.storage.WorldData;
+import net.minecraft.world.level.levelgen.WorldDimensions;
+import net.minecraft.world.level.levelgen.WorldGenSettings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import qouteall.dimlib.ducks.IMappedRegistry;
+import qouteall.dimlib.mixin.common.IHolderReference;
+import qouteall.dimlib.mixin.common.IWorldGenSettings;
 
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public class DimensionImpl {
     
@@ -29,9 +34,6 @@ public class DimensionImpl {
     ) {
         RegistryAccess.Frozen registryAccess = server.registryAccess();
         
-        WorldData worldData = server.getWorldData();
-        WorldOptions worldOptions = server.getWorldGenSettings().options();
-        
         MappedRegistry<LevelStem> levelStems = (MappedRegistry<LevelStem>)
             registryAccess.lookupOrThrow(Registries.LEVEL_STEM);
         
@@ -42,11 +44,13 @@ public class DimensionImpl {
             ((IMappedRegistry) levelStems).dimlib_setIsFrozen(false);
             
             try {
-                levelStems.register(
+                Holder.Reference<LevelStem> holder = levelStems.register(
                     ResourceKey.create(Registries.LEVEL_STEM, dimensionId),
                     levelStem,
                     RegistrationInfo.BUILT_IN // use built-in registration info for now
                 );
+                bindLevelStem(holder, levelStem);
+                updateSavedDimensions(server);
             }
             finally {
                 ((IMappedRegistry) levelStems).dimlib_setIsFrozen(oldIsFrozen);
@@ -65,5 +69,34 @@ public class DimensionImpl {
         return ((MappedRegistry<LevelStem>)
             server.registryAccess().lookupOrThrow(Registries.LEVEL_STEM)
         );
+    }
+
+    @SuppressWarnings("unchecked")
+    static void bindLevelStem(Holder.Reference<LevelStem> holder, LevelStem levelStem) {
+        // Vanilla normally binds these only when freezing the registry. Dynamic
+        // registration deliberately preserves the existing frozen/tag state.
+        if (!holder.isBound()) {
+            ((IHolderReference<LevelStem>) (Object) holder).dimlib_bindValue(levelStem);
+        }
+    }
+
+    static void updateSavedDimensions(MinecraftServer server) {
+        // In 26.3, world generation is SavedData with its own dimension-map
+        // snapshot. Updating only LEVEL_STEM no longer persists dimension edits.
+        WorldGenSettings settings = server.getWorldGenSettings();
+        ((IWorldGenSettings) (Object) settings).dimlib_setDimensions(
+            new WorldDimensions(copyRegistryEntries(getDimensionRegistry(server)))
+        );
+        settings.setDirty();
+    }
+
+    static <T> Map<ResourceKey<T>, T> copyRegistryEntries(Registry<T> registry) {
+        // MappedRegistry.listElements() walks numeric IDs, including null holes
+        // left by dynamic removal. The keyed entries contain only live holders.
+        Map<ResourceKey<T>, T> entries = new LinkedHashMap<>();
+        for (Map.Entry<ResourceKey<T>, T> entry : registry.entrySet()) {
+            entries.put(entry.getKey(), entry.getValue());
+        }
+        return entries;
     }
 }

@@ -4,11 +4,8 @@ import net.minecraft.util.profiling.Profiler;
 import com.google.common.collect.ImmutableList;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientLevel;
+import qouteall.imm_ptl.core.platform_shared.ServerTickEvents;
 import net.minecraft.core.Direction;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
@@ -21,7 +18,7 @@ import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
 import qouteall.imm_ptl.core.CHelper;
-import qouteall.imm_ptl.core.ClientWorldLoader;
+import qouteall.imm_ptl.core.platform_shared.ModPlatform;
 import qouteall.imm_ptl.core.IPGlobal;
 import qouteall.imm_ptl.core.McHelper;
 import qouteall.imm_ptl.core.ScaleUtils;
@@ -32,7 +29,6 @@ import qouteall.imm_ptl.core.portal.Portal;
 import qouteall.imm_ptl.core.portal.global_portals.GlobalPortalStorage;
 import qouteall.q_misc_util.Helper;
 import qouteall.q_misc_util.MiscHelper;
-import qouteall.q_misc_util.my_util.LimitedLogger;
 
 import java.util.List;
 import java.util.function.BiFunction;
@@ -40,7 +36,6 @@ import java.util.function.Function;
 
 public class CollisionHelper {
     
-    private static final LimitedLogger limitedLogger = new LimitedLogger(20);
     
     /**
      * cut a box with a plane.
@@ -437,27 +432,6 @@ public class CollisionHelper {
         });
     }
     
-    @Environment(EnvType.CLIENT)
-    public static void initClient() {
-        IPGlobal.POST_CLIENT_TICK_EVENT.register(CollisionHelper::tickClient);
-    }
-    
-    @Environment(EnvType.CLIENT)
-    public static void tickClient() {
-        updateClientCollidingStatus();
-        
-        updateClientStagnateStatus();
-    }
-    
-    @Environment(EnvType.CLIENT)
-    private static void updateClientCollidingStatus() {
-        if (ClientWorldLoader.getIsInitialized()) {
-            for (ClientLevel world : ClientWorldLoader.getClientWorlds()) {
-                updateCollidingPortalForWorld(world, 0);
-            }
-        }
-    }
-    
     /**
      * Note that there are 3 kinds of portals in the aspect of collision:
      * 1. non-teleportable portal, doesn't affect collision
@@ -512,32 +486,9 @@ public class CollisionHelper {
         return box;
     }
     
-    private static boolean thisTickStagnate = false;
-    private static boolean lastTickStagnate = false;
-    
     @Environment(EnvType.CLIENT)
     public static void informClientStagnant() {
-        thisTickStagnate = true;
-        limitedLogger.log("client movement stagnated");
-    }
-    
-    @Environment(EnvType.CLIENT)
-    private static void updateClientStagnateStatus() {
-        if (thisTickStagnate && lastTickStagnate) {
-            Minecraft.getInstance().gui.hud.setOverlayMessage(
-                Component.translatable("imm_ptl.stagnate_movement"),
-                false
-            );
-        }
-        else if (!thisTickStagnate && lastTickStagnate) {
-            Minecraft.getInstance().gui.hud.setOverlayMessage(
-                Component.literal(""),
-                false
-            );
-        }
-        
-        lastTickStagnate = thisTickStagnate;
-        thisTickStagnate = false;
+        if (!ModPlatform.isDedicatedServer()) { CollisionHelperClient.informStagnant(); }
     }
     
     @Nullable

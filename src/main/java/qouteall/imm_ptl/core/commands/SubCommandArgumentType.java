@@ -12,7 +12,7 @@ import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import com.mojang.brigadier.tree.CommandNode;
 import com.mojang.brigadier.tree.RootCommandNode;
-import net.fabricmc.fabric.api.command.v2.ArgumentTypeRegistry;
+import qouteall.imm_ptl.core.platform_shared.PlatformHooks;
 import net.minecraft.commands.synchronization.SingletonArgumentInfo;
 import qouteall.imm_ptl.core.McHelper;
 
@@ -75,7 +75,7 @@ public class SubCommandArgumentType implements ArgumentType<String> {
     }
     
     public static void init() {
-        ArgumentTypeRegistry.registerArgumentType(
+        PlatformHooks.registerArgumentType(
             McHelper.newResourceLocation("imm_ptl:sub_command_argument_type"),
             SubCommandArgumentType.class,
             SingletonArgumentInfo.contextFree(() -> instance)

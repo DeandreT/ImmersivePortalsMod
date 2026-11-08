@@ -1,6 +1,6 @@
 package qouteall.imm_ptl.core.compat;
 
-import net.fabricmc.loader.api.FabricLoader;
+import qouteall.imm_ptl.core.platform_shared.ModPlatform;
 import org.objectweb.asm.tree.ClassNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
@@ -23,34 +23,33 @@ public class IPCompatMixinPlugin implements IMixinConfigPlugin {
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
         
         
-        FabricLoader fabricLoader = FabricLoader.getInstance();
         if (mixinClassName.contains("IrisSodium")) {
-            boolean sodiumLoaded = fabricLoader.isModLoaded("sodium");
-            boolean irisLoaded = fabricLoader.isModLoaded("iris");
+            boolean sodiumLoaded = ModPlatform.isModLoaded("sodium");
+            boolean irisLoaded = ModPlatform.isModLoaded("iris");
             return sodiumLoaded && irisLoaded;
         }
         
         if (mixinClassName.contains("Iris")) {
-            boolean irisLoaded = fabricLoader.isModLoaded("iris");
+            boolean irisLoaded = ModPlatform.isModLoaded("iris");
             return irisLoaded;
         }
         
         if (mixinClassName.contains("Sodium")) {
-            boolean sodiumLoaded = fabricLoader.isModLoaded("sodium");
+            boolean sodiumLoaded = ModPlatform.isModLoaded("sodium");
             return sodiumLoaded;
         }
         
         if (mixinClassName.contains("EntityCulling")) {
-            return fabricLoader.isModLoaded("entityculling");
+            return ModPlatform.isModLoaded("entityculling");
         }
         
         if (mixinClassName.contains("Flywheel")) {
-            boolean flywheelLoaded = fabricLoader.isModLoaded("flywheel");
+            boolean flywheelLoaded = ModPlatform.isModLoaded("flywheel");
             return flywheelLoaded;
         }
         
         if (mixinClassName.contains("CardinalComp")) {
-            boolean cardinalCompLoaded = fabricLoader.isModLoaded("cardinal-components-base");
+            boolean cardinalCompLoaded = ModPlatform.isModLoaded("cardinal-components-base");
             return cardinalCompLoaded;
         }
         

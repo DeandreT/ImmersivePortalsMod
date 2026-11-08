@@ -8,3 +8,4 @@ This is a modified version. Changes (full list in the git history of the port/26
 - Ported to Minecraft 26.3, Fabric Loader 0.19 / Loom 1.18 (unobfuscated Minecraft), Java 25.
 - Per-dimension world borders, removed ChunkProgressListener, Identifier rename, Fabric networking API renames.
 - Renamed to "DimLib (Unofficial 26.3 Port)"; contact links point to this port.
+- Added native NeoForge support with shared dimension implementation, loader-neutral phased callbacks, native payload registration and configuration.

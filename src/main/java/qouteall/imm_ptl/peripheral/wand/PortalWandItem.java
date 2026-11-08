@@ -2,15 +2,11 @@ package qouteall.imm_ptl.peripheral.wand;
 
 import java.util.function.Consumer;
 import net.minecraft.world.item.component.TooltipDisplay;
-import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.serialization.Codec;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
+import qouteall.imm_ptl.core.platform_shared.AttackBlockCallback;
+import qouteall.imm_ptl.core.platform_shared.ModPlatform;
+import qouteall.imm_ptl.core.platform_shared.PlatformHooks;
 import net.minecraft.ChatFormatting;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -26,12 +22,8 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
-import qouteall.imm_ptl.core.IPCGlobal;
-import qouteall.imm_ptl.core.IPMcHelper;
 import qouteall.imm_ptl.core.block_manipulation.BlockManipulationServer;
 
-import java.util.ArrayList;
-import java.util.List;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.core.registries.Registries;
@@ -46,7 +38,7 @@ public class PortalWandItem extends Item {
     );
     
     public static void init() {
-        Registry.register(
+        PlatformHooks.register(
             BuiltInRegistries.DATA_COMPONENT_TYPE,
             "iportal:portal_wand_data",
             COMPONENT_TYPE
@@ -63,26 +55,6 @@ public class PortalWandItem extends Item {
         BlockManipulationServer.canDoCrossPortalInteractionEvent.register(p -> {
             return p.getMainHandItem().getItem() != instance;
         });
-    }
-    
-    public static void initClient() {
-        ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            if (client.player != null) {
-                ItemStack itemStack = client.player.getMainHandItem();
-                if (itemStack.getItem() == instance) {
-                    updateDisplay(itemStack);
-                }
-                else {
-                    ClientPortalWandPortalCreation.clearCursorPointing();
-                }
-            }
-            ClientPortalWandPortalDrag.tick();
-        });
-        
-        
-        IPCGlobal.CLIENT_CLEANUP_EVENT.register(ClientPortalWandPortalCreation::reset);
-        IPCGlobal.CLIENT_CLEANUP_EVENT.register(ClientPortalWandPortalDrag::reset);
-        IPCGlobal.CLIENT_CLEANUP_EVENT.register(ClientPortalWandPortalCopy::reset);
     }
     
     public static void addIntoCreativeTag(CreativeModeTab.Output entries) {
@@ -165,28 +137,6 @@ public class PortalWandItem extends Item {
         super(properties);
     }
     
-    @Environment(EnvType.CLIENT)
-    public static void onClientLeftClick(LocalPlayer player, ItemStack itemStack) {
-        if (player.isShiftKeyDown()) {
-            showSettings(player);
-        }
-        else {
-            Mode mode = itemStack.getOrDefault(COMPONENT_TYPE, Mode.FALLBACK);
-            
-            switch (mode) {
-                case CREATE_PORTAL -> {
-                    ClientPortalWandPortalCreation.onLeftClick();
-                }
-                case DRAG_PORTAL -> {
-                    ClientPortalWandPortalDrag.onLeftClick();
-                }
-                case COPY_PORTAL -> {
-                    ClientPortalWandPortalCopy.onLeftClick();
-                }
-            }
-        }
-    }
-    
     @Override
     public InteractionResult use(Level world, Player player, InteractionHand hand) {
         ItemStack itemStack = player.getItemInHand(hand);
@@ -203,30 +153,14 @@ public class PortalWandItem extends Item {
         }
         
         if (!player.isShiftKeyDown()) {
-            if (world.isClientSide()) {
-                onUseClient(mode);
+            if (world.isClientSide() && !ModPlatform.isDedicatedServer()) {
+                PortalWandItemClient.onUse(mode);
             }
         }
         
         return super.use(world, player, hand);
     }
     
-    @Environment(EnvType.CLIENT)
-    private void onUseClient(Mode mode) {
-        switch (mode) {
-            case CREATE_PORTAL -> {
-                ClientPortalWandPortalCreation.onRightClick();
-            }
-            case DRAG_PORTAL -> {
-                ClientPortalWandPortalDrag.onRightClick();
-            }
-            case COPY_PORTAL -> {
-                ClientPortalWandPortalCopy.onRightClick();
-            }
-        }
-    }
-    
-    @Environment(EnvType.CLIENT)
     @Override
     public void appendHoverText(
         ItemStack stack, Item.TooltipContext tooltipContext,
@@ -234,16 +168,7 @@ public class PortalWandItem extends Item {
     ) {
         super.appendHoverText(stack, tooltipContext, tooltipDisplay, tooltip, tooltipFlag);
         
-        tooltip.accept(Component.translatable(
-            "imm_ptl.wand.item_desc_1",
-            Minecraft.getInstance().options.keyShift.getTranslatedKeyMessage(),
-            Minecraft.getInstance().options.keyUse.getTranslatedKeyMessage()
-        ));
-        tooltip.accept(Component.translatable(
-            "imm_ptl.wand.item_desc_2",
-            Minecraft.getInstance().options.keyShift.getTranslatedKeyMessage(),
-            Minecraft.getInstance().options.keyAttack.getTranslatedKeyMessage()
-        ));
+        if (!ModPlatform.isDedicatedServer()) { PortalWandItemClient.appendHoverText(tooltip); }
     }
     
     @Override
@@ -255,72 +180,6 @@ public class PortalWandItem extends Item {
         return baseText
             .append(Component.literal(" : "))
             .append(mode.getText().withStyle(ChatFormatting.GOLD));
-    }
-    
-    public static void showSettings(Player player) {
-        player.sendSystemMessage(Component.translatable("imm_ptl.wand.settings_1"));
-        player.sendSystemMessage(Component.translatable("imm_ptl.wand.settings_alignment"));
-        
-        int[] alignments = new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 32, 64};
-        
-        List<MutableComponent> alignmentSettingTexts = new ArrayList<>();
-        for (int alignment : alignments) {
-            MutableComponent textWithCommand = IPMcHelper.getTextWithCommand(
-                Component.literal("1/" + alignment),
-                "/imm_ptl_client_debug wand set_cursor_alignment " + alignment
-            );
-            alignmentSettingTexts.add(textWithCommand);
-        }
-        
-        alignmentSettingTexts.add(IPMcHelper.getTextWithCommand(
-            Component.translatable("imm_ptl.wand.no_alignment"),
-            "/imm_ptl_client_debug wand set_cursor_alignment 0"
-        ));
-        
-        player.sendSystemMessage(
-            alignmentSettingTexts.stream().reduce(Component.literal(""), (a, b) -> a.append(" ").append(b))
-        );
-        
-        player.sendSystemMessage(Component.translatable(
-            "imm_ptl.wand.settings_2", Minecraft.getInstance().options.keyChat.getTranslatedKeyMessage()
-        ));
-    }
-    
-    private static boolean instructionInformed = false;
-    
-    @Environment(EnvType.CLIENT)
-    private static void updateDisplay(ItemStack itemStack) {
-        Mode mode = itemStack.getOrDefault(COMPONENT_TYPE, Mode.FALLBACK);
-        
-        switch (mode) {
-            case CREATE_PORTAL -> ClientPortalWandPortalCreation.updateDisplay();
-            case DRAG_PORTAL -> ClientPortalWandPortalDrag.updateDisplay();
-            case COPY_PORTAL -> ClientPortalWandPortalCopy.updateDisplay();
-        }
-    }
-    
-    @Environment(EnvType.CLIENT)
-    public static void clientRender(
-        LocalPlayer player, ItemStack itemStack, PoseStack poseStack,
-        double camX, double camY, double camZ
-    ) {
-        if (!instructionInformed) {
-            instructionInformed = true;
-        }
-        
-        Mode mode = itemStack.getOrDefault(COMPONENT_TYPE, Mode.FALLBACK);
-        
-        switch (mode) {
-            case CREATE_PORTAL -> ClientPortalWandPortalCreation.render(
-                poseStack, camX, camY, camZ
-            );
-            case DRAG_PORTAL -> ClientPortalWandPortalDrag.render(
-                poseStack, camX, camY, camZ
-            );
-            case COPY_PORTAL -> ClientPortalWandPortalCopy.render(
-                poseStack, camX, camY, camZ
-            );
-        }
     }
     
 }

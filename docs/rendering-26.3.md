@@ -1,268 +1,284 @@
-# Portal rendering on Minecraft 26.3: design
+# Portal rendering on Minecraft 26.3
 
-Status: design for the 26.3 port. Replaces the 1.21.1 stencil/recursive approach.
-Decompiled MC sources: `F:\Immersive Portals\mc-src\26.3\`. Shader assets: in the loom-cache MC jar under `assets/minecraft/shaders/`.
+This describes the current sequential offscreen renderer. Production rendering code is under
+`src/main/java/qouteall/imm_ptl/core/render`, with renderer mixins under `core/mixin/client/render`
+and compatibility mixins under `core/compat/mixin`. Portal shaders are in
+`src/main/resources/assets/immersive_portals/shaders/core/`.
 
-## What changed in 26.3 (constraints)
+## Rendering constraints
 
-1. Rendering goes through `com.mojang.renderpearl` (OpenGL or Vulkan backend; OpenGL is the default). No raw GL.
-2. No stencil, no clip planes (`gl_ClipDistance`), no occlusion queries in the API.
-3. A frame is `GameRenderer.update` -> `GameRenderer.extract` (game objects -> `GameRenderState`/`LevelRenderState`) -> `GameRenderer.render` -> one GPU submit.
-   `LevelRenderer.render` builds a frame graph with one big "main" pass. A world render cannot be nested inside it
-   (`FeatureRenderDispatcher` has a single `PreparedFrame`; extracted entity lists are consumed).
-4. Depth is reversed-Z: clear depth = 0.0, nearer = larger, test `GREATER_THAN_OR_EQUAL`.
-5. Buffers written through `MappableRingBuffer.currentBuffer()` (fog, lightmap, clouds, post pass info) hold one value per frame.
-   Writing them twice per frame overwrites data earlier draws use. Rotating them mid-frame can deadlock (fences only complete after the frame's submit).
-   Buffers written with `CommandEncoder.writeToBuffer` (projection, `GlobalSettingsUniform`) are ordered in the command stream and are safe to rewrite between views.
-6. `LevelRenderer` always outputs to `GameRenderer.mainRenderTarget()`. `SkyRenderer` caches its target at construction.
+- Minecraft renders through `com.mojang.renderpearl`, with OpenGL and Vulkan backends. The common
+  portal renderer uses that API, not raw OpenGL stencil, clipping or occlusion-query calls.
+- A frame runs `GameRenderer.update` -> `extract` -> `render` -> GPU submission. Extraction produces
+  `GameRenderState`/`LevelRenderState`; the feature dispatcher has one `PreparedFrame`, and entity
+  submissions are consumed by rendering. Another world render cannot be nested inside an active
+  `LevelRenderer` frame-graph pass.
+- Depth is reversed-Z: clear to `0.0`, nearer fragments have larger values, and the normal depth test
+  is `GREATER_THAN_OR_EQUAL`.
+- Mapped ring-buffer writes hold one value per buffer instance per frame. Rewriting fog or cloud
+  data for another view would overwrite earlier draws; rotating buffers mid-frame can wait on the
+  current, unsubmitted frame. Projection and global-setting writes use command-ordered buffer
+  uploads and can be updated between views.
+- `LevelRenderer` uses `GameRenderer.mainRenderTarget()`. The override in `MixinGameRenderer` and
+  target redirection in `MixinSkyRenderer_Target` make offscreen world rendering possible.
 
-## Approach: pre-render portal views, then composite
+## Frame flow: children first, then the main view
 
-Old: while rendering the outer world, at the portal, swap global state and call `GameRenderer.renderLevel` again (recursion), stencil-masked.
-New: no recursion inside a render. Each frame:
+`MixinGameRenderer` calls `PortalViewRenderer.renderPortalViews` at the head of `GameRenderer.extract`,
+after the main camera update, when the loaded level/player state is consistent and game time advances.
 
-1. **Plan** (start of `GameRenderer.extract`, after `update`; main camera is up to date):
-   build a tree of `PortalView`s. Root = main view. Children of a view = portals visible from that view's camera
-   (CPU culling: frustum, distance, `Portal.isRoughlyVisibleTo`, `PortalRenderer.PORTAL_RENDERING_PREDICATE`, limits `IPGlobal.maxPortalLayer`, `IPGlobal.portalRenderLimit`).
-2. **Render views in post-order** (deepest first), each fully sequential:
-   - acquire a `TextureTarget` (RGBA8 + D32_FLOAT, window size) from `PortalViewTargetPool`;
-   - enter the view context (`PortalViewContext.push`): swap in the destination `ClientLevel`, that dimension's `LevelRenderer` + `LevelExtractor`,
-     a `Camera` placed by the portal transform, the view's fog buffer instance, the dimension lightmap, and redirect `mainRenderTarget()` (and the sky renderer's target) to the view target;
-   - run: `LevelExtractor.extract(...)` for that camera -> set projection -> `GlobalSettingsUniform.update` (camera pos + clip plane) -> `LevelRenderer.render(...)`;
-   - pop the context (restore everything).
-3. **Main render** runs as vanilla. Wherever a portal is drawn (in the main view or inside a child view), its surface is rendered with the
-   portal-surface render type, which samples that portal's view texture in screen space (`gl_FragCoord.xy / ScreenSize`) with depth test + write.
-   Because children render first, a parent view can sample its children's textures (nested portals).
+1. Create the main `PortalViewRenderer.ViewNode`. `renderChildViews` collects ordinary and global
+   portals, sorts them nearest-first, and applies visibility, distance, frustum, rendering-predicate,
+   recursion and layer limits. Main-view portals also use `PortalOcclusionCulling`.
+2. For each eligible portal, compute a crop and acquire an RGBA8_UNORM + D32_FLOAT `TextureTarget`
+   from `PortalViewTargetPool`, subject to `IPGlobal.portalRenderLimit`. Record the child node and
+   target in the parent's identity-keyed maps.
+3. `renderViewAndChildren` selects a `DimensionRenderHelper`, pushes `PortalRendering` and
+   `WorldRenderInfo`, and switches the client level, renderer/extractor, particle world, camera,
+   lightmap, fog, clouds, directional lighting and hit result. It recursively handles children
+   **before** extracting and rendering this view. This is recursive traversal, not nested world draws.
+4. `renderCurrentView` clears the target, updates the helper's lightmap as needed, extracts the camera,
+   applies crop/mirror projection, extracts the level, sets the clipping plane and globals, then calls
+   `GameRenderer.renderLevel`. Hand/HUD rendering is skipped for these views. Swapped state is restored
+   in `finally`.
+5. Cross-portal camera views and queued GUI world views use the same offscreen path. The main view
+   then extracts and renders normally. `PortalSurfaceRendering` draws each portal's mesh with the
+   already-rendered child texture, projective screen-space sampling, depth testing and depth writes.
 
-Everything happens on the render thread in order, so the per-dimension `LevelRenderer`s can share `GameRenderer.gameRenderState()`
-(each view overwrites it; the main extract runs last).
+All world draws run sequentially on the render thread. They share `GameRenderer.gameRenderState()`;
+each view overwrites it and the main extraction runs last. Background readers need snapshots:
+`MixinSectionOcclusionGraph` copies camera state for asynchronous full updates.
 
-## Components (new code lives in `qouteall.imm_ptl.core.render`)
+## Components and resource ownership
 
 | Component | Responsibility |
 |---|---|
-| `PortalViewPlanner` | Builds the view tree for the frame from the main camera. CPU culling only (no GPU queries). |
-| `PortalView` | One node: portal, parent, depth, `WorldRenderInfo`, camera pos/rotation, clip plane, assigned target. |
-| `PortalViewTargetPool` | Pool of window-sized `TextureTarget`s; resize on window resize; indexes for this frame. |
-| `PortalViewRenderer` | Runs the post-order render of the tree (step 2). Entry point called from the `GameRenderer.extract` HEAD mixin. |
-| `PortalViewContext` | Push/pop of the swapped client state (replaces `MyGameRenderer.switchAndRenderTheWorld`). Knows `isRenderingPortalView()` / current view. |
-| `DimensionRenderResources` | Per-dimension `LevelRenderer` + `LevelExtractor` + `Lightmap`, created lazily in `ClientWorldLoader` (replaces `WORLD_RENDERER_MAP` + `DimensionRenderHelper`). `endFrame()` for all of them each frame. |
-| `PortalSurfaceRenderType` | Pipeline + render type drawing a portal's mesh sampling its view texture. Used by the portal entity renderer and for global portals (submitted in `LevelRenderer.submitFeatures`). |
-| `PortalClipping` | Front clipping: extends the `Globals` UBO with `vec4 ImmPtlClipPlane` (view space; w=0 plane disabled) and injects `discard` into world shaders. |
+| `PortalViewRenderer` / `ViewNode` | Traversal, child targets, transformed cameras, context switching and sequential extraction/rendering. |
+| `PortalViewTargetPool` | Reusable color/depth targets, resizing, far-view keepers and idle eviction. |
+| `PortalSurfaceRendering` / `PortalEntityRenderer` | Portal mesh submission, per-target textures/render types and Iris final-image replacement. |
+| `ClientWorldLoader` / `DimensionRenderHelper` | Client dimensions and paired `LevelRenderer`/`LevelExtractor` resources, lightmaps, extra grids and lifecycle. |
+| `WorldRenderInfo` / `PortalRendering` | View options, camera transforms, portal layers and active clipping plane. |
+| `PortalClipping` / `EntityClipping` | Shader front clipping for a view and CPU clipping for crossing entities. |
 
-### Front clipping
-- `GlobalSettingsUniform`: mixin grows the UBO by one vec4 and writes the current view's plane in `update`.
-- Shader source hook: `ShaderManager.loadShader` / `loadInclude` (or `PipelineBuilder.loadShaderSource`). Port `ShaderCodeTransformation`:
-  - override `include/globals.glsl` to add `vec4 ImmPtlClipPlane;` at the end of the block;
-  - vertex shaders of world pipelines: after the line assigning `gl_Position = ProjMat * X`, add `immptl_ViewPos = X;` (output varying);
-    X is already view-space (terrain: `TerrainUniform.ModelViewMat` = view rotation; entities: `DynamicTransforms.ModelViewMat`);
-  - fragment shaders: `if (dot(ImmPtlClipPlane.xyz, immptl_ViewPos.xyz) + ImmPtlClipPlane.w < 0.0) discard;`.
-  - Varyings need explicit `layout(location = N)`; pick N above the shader's highest used location.
-- Shaders are Vulkan-style GLSL compiled to SPIR-V by shaderc; test on both backends.
+The first client dimension retains vanilla's rendering instances; other dimensions are created lazily
+with their own renderer, extractor and lightmap. Changing the player's dimension switches the current
+instances. `ClientWorldLoader` forwards resize, reload and end-of-frame handling to non-current helpers;
+cleanup restores vanilla's original instances before closing secondary resources.
 
-### Culling and section visibility for views
-- `SectionOcclusionGraph` is rooted at one camera per `LevelRenderer`. When rendering a portal view, skip `sectionOcclusionGraph.update` and the
-  translucent resort / compile reprioritisation for that view (mixin checks `PortalViewContext.isRenderingPortalView()`), so the main view's graph is not disturbed.
-- Visible sections for a view come from IP's own synchronous BFS (`VisibleSectionDiscovery`, ported), injected at `LevelExtractor.applyFrustum` /
-  `SectionOcclusionGraph.addSectionsInFrustum` while in a view.
+Fog and cloud renderers are pooled per view and receive `endFrame()` individually. A dimension owns
+its lightmap and shares it with its extra helpers; each helper tracks `lightmapRenderedFrame` to avoid
+repeated updates through that helper in one frame. Projection and globals remain shared, with ordered
+writes before each view's draws.
 
-### Entities crossing a portal
-An entity halfway through a portal is clipped by the portal plane: the original by the outer clipping plane
-(the part that went through is hidden), its projection on the other side by the inner one. There is no per-entity
-clip plane on the GPU (entities are batched per render type into one vertex buffer), so this is done on the CPU
-(`EntityClipping`): extracted render states get their planes, the submits made while such a state is submitted
-are tagged, and `RenderTypeFeatureRenderer` builds tagged submits with a vertex consumer that cuts every quad by
-the planes (quads; triangle strips like leashes are clipped per triangle). Works the same with Sodium and Iris.
+## Front clipping
+
+`PortalClipping` transforms the active destination plane to view space after camera extraction. A zero
+vector disables clipping. The plane is offset by `0.01` toward the camera to retain faces exactly on
+the portal plane and avoid edge cracks.
+
+- `MixinProjectionMatrixBuffer` extends the **Projection** uniform block by one vec4,
+  `ImmPtlClipPlane`. Only the level projection writes an active plane; other projections write zero.
+- `MixinCachedIncludeSource` patches `minecraft:projection.glsl`; `MixinPipelineBuilder_Clipping`
+  also handles inline Projection declarations and transforms matching vertex/fragment shader pairs.
+- World vertex shaders compute `immptl_ClipDistance = dot(ImmPtlClipPlane, viewPosition)` after a
+  recognized projection assignment. Fragment shaders discard negative distances. The common shader
+  path uses varying location 15; sky, stars, panorama, GUI and screen-quad shaders are excluded.
+- Sodium's terrain plane is carried separately in its `u_Globals` block as `ImmPtlSodiumClipPlane`.
+  Iris-generated programs have their own transformation hooks, described below.
+
+This is plane clipping, not a stencil mask inside each offscreen render. The final portal mesh defines
+the visible opening; cropped targets are rectangular and the section-culling frustum is not cropped.
+
+## Culling and section visibility for views
+
+`MixinLevelRenderer` keeps separate main/view section lists. In views, `sectionOcclusionGraph()` returns
+`VisibleSectionDiscovery.PortalViewOcclusionGraph`, so `LevelExtractor.applyFrustum` uses synchronous
+breadth-first discovery rather than re-rooting the main view's asynchronous cave-culling graph. Views
+disable smart cave culling because their camera may sit inside blocks behind the destination plane.
+The main view also temporarily uses synchronous discovery immediately after teleportation.
+
+The real graph still receives loaded-chunk and empty-section changes consumed by extraction. Extra
+helpers forward those changes to their dimension's base renderer too. A secondary renderer's stale
+graph is invalidated when it becomes the main renderer. Views sharing the main renderer do not move
+its section-update tracker or resort its translucent sections; other view renderers can resort normally.
 
 ### Renderers and grids for portal views
-A LevelRenderer's ViewArea is a fixed grid (the render distance around a center) and only shows the sections in it.
-Moving it resets the sections that move in it, and `LevelExtractor.extract` looks up the view's sections before
-`LevelRenderer.render` would move it (vanilla lags one frame; a view sharing a renderer would always use the grid of
-the previous view). So `DimensionRenderHelper.selectForView` picks the renderer of each view before it is extracted:
-a renderer whose grid covers the view camera (at least 4 sections from its edge) as it is; else the nearest renderer
-of that dimension not used by another view in this frame, its grid moved to the camera now (`IELevelRenderer_ViewGrid`);
-else a new extra renderer (up to 3 per dimension: own LevelRenderer and LevelExtractor on the same ClientLevel, which
-forwards block changes to them, `IEClientWorld.ip_setExtraExtractors`; they share the dimension's lightmap and are
-released after 600 frames without use); else the nearest one as it is (partial terrain, never grids moving every frame).
-Before, two views of one dimension far apart moved one grid back and forth every frame and showed no terrain at all
-(feature test "terrain behind a far portal"). The main view's renderer stays centered on the player and is never moved
-by views. `LevelRenderer.repositionCamera` is skipped in all portal views.
-All extractors of a level take the section emptiness and chunk load changes from the same ClientLevel, and each change
-is given out once, so an extra renderer's extraction passes them on to the dimension's own renderer's graph
-(MixinLevelRenderer `wrapSectionOcclusionGraphUpdate`); otherwise sections that got blocks stayed "empty" for the main
-view and were not rendered (you could see through them).
-The occlusion graph of a renderer is not updated in views (views use `VisibleSectionDiscovery`); it's rebuilt when that
-renderer becomes the main one. The dirty sections of a view are collected around its camera, so some may be outside the
-grid; they're skipped when compiling (`MixinLevelRenderer_ForceMainThreadRebuild`) and reset/compiled when the grid
-moves over them. Not with Sodium, whose renderer is not bound to a grid. Visual test: `far_portal`, `far_portal_changed`.
 
-How far a view is rendered: the server loads the other side of a portal less far than the render distance
-(`ChunkVisibility`: the full render distance within 5 blocks of the portal, 2/3 within 15, 1/3 beyond; capped by
-`indirectLoadingRadiusCap` (8) except within 5 blocks, and by the client's performance level). A view rendered to the
-full render distance showed the sky past the loaded chunks, with a hard edge. So `PortalRenderer.getPortalRenderDistance`
-limits a view to the terrain loaded around the portal's destination (`LoadedTerrainRadius`: the largest ring of chunks
-that is at least 90% loaded, measured every 10 frames), and the view's fog is set at that distance
-(`MixinGameRenderer.modifyFogRenderDistance`). Not for global portals. Feature tests: "terrain behind a far portal"
-(render distance 12), and `-Pimm_ptl.featureTest.userWorld=<save dir> -Pimm_ptl.featureTest.userWorldPos="<dim> x y z yaw pitch"`
-to open a copy of a reported world at the reported position.
+A vanilla `LevelRenderer.ViewArea` is a fixed section grid. `DimensionRenderHelper.selectForView` selects
+it before extraction:
 
-Why terrain is missing in a view: `ViewDiagnostics` (`/imm_ptl_client_debug report_portal_views`, run twice) reports per
-view the visible sections without a loaded chunk (chunk loading: the server loads less behind a portal the further the
-player is from it, and much less at a low client performance level, `ChunkVisibility`), the unbuilt sections of loaded
-chunks (section compiling) and the grid moves.
+- Reuse a grid covering the view camera, with a four-section margin where possible.
+- Otherwise move the nearest movable helper not used by another view this frame, or create an extra
+  helper, up to three extras per dimension. Each has its own renderer/extractor on the same level and
+  shares the dimension lightmap. The level forwards block changes to extra extractors.
+- If no helper can move or be created, use the nearest existing grid unchanged. This can show partial
+  terrain rather than resetting grids back and forth every frame.
+
+The player's base grid is never moved for a portal view. `LevelRenderer.repositionCamera` is skipped
+in views; other grids move before extraction. Dirty sections outside the selected grid are skipped
+when compiling and rebuilt when the grid reaches them. Extra helpers are released after 600 unused
+frames. Sodium uses its own terrain storage instead of these extra vanilla grids.
+
+`PortalRenderer.getPortalRenderDistance` also limits non-global views to loaded destination terrain.
+`LoadedTerrainRadius` checks successive chunk rings for at least 90% loading every ten frames, with
+a minimum radius of two chunks. View fog uses the resulting render distance. Server-side
+`ChunkVisibility` controls loading according to portal distance, loading caps and performance level;
+rendering cannot display chunks that have not arrived. Global portals use their separate loading policy.
+
+For missing terrain, run `/imm_ptl_client_debug report_portal_views` twice. `ViewDiagnostics` distinguishes
+unloaded chunks, unbuilt sections and grid moves. `FeatureSmokeTest` includes far-portal terrain and
+block-change scenarios. Its `imm_ptl.featureTest.userWorld` and `userWorldPos` properties can open a
+copy of a reported save at a specified `dimension x y z yaw pitch`.
 
 ### Hidden portals
-1.21.1 skipped portals hidden behind blocks with GL occlusion queries; renderpearl has none. `PortalOcclusionCulling`
-uses vanilla's cave culling graph instead: `SectionOcclusionGraph` is a BFS from the camera section through section
-faces that can see each other, independent of the camera rotation, so a section without a node can't be seen.
-A portal of the main view whose box only touches sections without a node is skipped (no view, no surface).
-It is rendered when unsure: the graph is being rebuilt (the camera moved), right after a teleport, global or huge portals,
-portals nearer than 8 blocks, sections outside the grid. A portal found visible stays rendered for 10 more frames
-(`PortalRenderInfo.lastVisibleFrame`). Only for the main view (portal views don't update the graph).
-With Sodium (which replaces the graph): Sodium's culling result of the main view (`SodiumWorldRenderer.isBoxVisible`,
-frustum and occlusion; sections without blocks count as visible). It is from the last frame or older (async culling),
-so a portal is only skipped after it has been in the frustum for 10 frames in a row (else a portal turning into view
-would be skipped for a moment). Switch: `IPCGlobal.cullHiddenPortals`. Feature test: "hidden portal culling" (also
-with `-PwithSodium`).
 
-### Cropped views
-A view is rendered only for the screen rectangle its portal covers (`PortalViewCrop`), into a target of that size
-(`PortalViewTargetPool`: sizes in 64 px steps, grow at once, shrink after 60 frames), at the window's pixel density,
-so a small or far portal costs few pixels. "Screen space" is the window NDC of a view's camera (not cropped, not
-flipped); it is the same for a view and the views behind its portals. A view's `Mapping` maps screen space to its
-target's NDC (crop and mirror flip); it's applied to the extracted projection in `renderCurrentView`, and the portal
-surface samples with the texture matrix `PortalViewCrop.samplingMatrix(parent, child)` (`TextureMat` in
-`portal_view.vsh`, a `TextureTransform` per target). The rectangle: the portal's surface mesh projected with the
-view's projection, view bobbing/damage tilt (`IEGameRenderer.ip_applyViewBobbing`, as `GameRenderer.renderLevel`) and
-rotation, intersected with what the parent view shows (a portal outside it is skipped), 2 px margin, snapped to the
-window's pixel grid. Full-size when a part of the portal is behind the camera or it covers more than 60% of the screen.
-Off with a shaderpack (Iris' buffers are window-sized), in panorama mode, during the nausea/portal screen effect
-(its skew isn't computed), and for cross-portal and GUI views. The cull frustum is not cropped. Switch:
-`IPCGlobal.cropPortalViews`. Feature test: "hidden portal culling" (cropped view pixels, same image as full-size).
+`PortalOcclusionCulling` only culls portals seen from the main view. With vanilla, a portal is hidden
+when none of the sections touched by its inflated bounding box is reachable in the cave-culling graph.
+It renders when uncertain: graph rebuilds, recent teleports, missing grids, global/large portals,
+portals within eight blocks, or sections outside the grid. A visible portal stays rendered for ten
+additional frames.
 
-### Fewer updates for far portals
-`FarPortalViewReuse`: a portal of the main view farther than 32 blocks covering less than 5% of the screen is rendered
-every 2nd frame (beyond 64 blocks and under 2%: every 3rd); in between its last image is drawn again. Its target is kept
-for it in the pool (`PortalViewTargetPool.acquire(..., keeper)` / `reuse`), with the mapping it was rendered with. Only
-while the camera (position, and the screen clip matrix: projection, bobbing, rotation), the crop rectangle and the
-portal (origin, axes, destination) are exactly as when it was rendered; otherwise the old image would be misaligned.
-So it only saves GPU time when standing still. Needs cropped views (the rectangle). Config `reduceFarPortalUpdates`
-(on in the Performance and Balanced presets). Feature test: "hidden portal culling" (far portal updates checks).
+With Sodium, it uses `SodiumWorldRenderer.isBoxVisible`. Because those asynchronous results can lag,
+a portal must remain in the frustum for ten frames before being skipped. The switch is
+`IPCGlobal.cullHiddenPortals`.
 
-### Invalidating a renderer mid-frame
-`LevelExtractor.extract` invalidates the compiled geometry when requested (allChanged), which recreates the
-renderer's buffers; with Sodium that waits for their last use. If a portal view already used that renderer in this
-frame (e.g. the main renderer, used by a view through a portal back into the player's dimension, right after a
-dimension change), its buffers belong to the frame being recorded and waiting crashed ("Cannot wait on a fence for the
-current submit"). So then the request is postponed to the start of the next frame (`MixinLevelExtractor`
-`modifyShouldInvalidate`, `DimensionRenderHelper.processPostponedInvalidation`). A renderer counts as used after its
-view is rendered, so a view's own first extraction still invalidates normally (postponing that left the new
-dimension without terrain after a teleport). Not when the renderer has no ViewArea (just reset).
+## Cropped views and far-view reuse
 
-### Shaderpack uniforms in views
-Iris measures the light at the eyes (eyeBrightness, eyeBrightnessM: cave fog, exposure) at the camera entity in the
-level being rendered; in a portal view that's the player's position in the destination level (often underground), so
-views got cave fog. `PortalViewEyeLight` (mixins `MixinIrisCommonUniforms`, `MixinIrisHardcodedCustomUniforms`)
-measures it at the view camera. Biome uniforms still use the player. Portal view cameras use near plane 0.05 with a
-shaderpack (Iris' fixed `near` uniform), 0.005 otherwise.
+`PortalViewCrop` projects the portal mesh using projection, view bobbing/damage tilt and rotation,
+intersects it with the parent's visible rectangle, adds a two-pixel margin and snaps to the window's
+pixel grid. `Mapping` converts uncropped screen coordinates to target coordinates, including mirror
+flips. `PortalViewCrop.samplingMatrix(parent, child)` supplies the portal surface's `TextureMat`.
 
-### Per-view buffer instances
-- Fog: `GameRenderer.fogRenderer` is swapped to a pooled `FogRenderer` per view index; call `endFrame()` on all pooled instances each frame.
-- Lightmap: one `Lightmap` per dimension; render it once per frame per dimension (first view that needs it).
-- Clouds: `CloudRenderer` holds one cloud position per frame, so each portal view swaps a pooled `CloudRenderer` into its `LevelRenderer` (`IELevelRenderer_Clouds`), like the fog renderers. Otherwise views sharing a dimension with the main view or with each other overwrite its cloud offsets.
-- Projection / globals: shared, written with `writeToBuffer` per view (safe).
+Targets grow immediately, use 64-pixel size steps capped at the window size, and shrink on a 60-frame
+check. Large rectangles (over 60% of the window) use full-size targets. If projection crosses the camera
+plane, bounds conservatively cover the parent's visible region. Cropping is disabled with shaderpacks,
+panorama mode and nausea/portal screen distortion. Cross-portal/GUI root targets are window-sized.
+The switch is `IPCGlobal.cropPortalViews`.
 
-## MVP scope (first playable build)
-In: views for normal portals and one+ nesting levels, front clipping, portal surface drawing, per-dimension renderers, entities in views.
-Out for now (TODO(26.3)): stencil-like exact portal-shape culling of view contents beyond front clipping,
-Sodium/Iris, cross-portal entity rendering polish, GUI portal rendering, fuse-view/isometric edge cases.
+With `IPGlobal.reduceFarPortalUpdates`, `FarPortalViewReuse` can reuse a main-view portal image every
+second frame beyond 32 blocks and below 5% screen coverage, or every third frame beyond 64 blocks and
+below 2%. This requires cropping and exact matches for camera position, screen clip matrix, crop and
+the checked portal geometry/destination. The pool retains the target and sampling mapping. It saves
+work while stationary, but animated contents update less often. `FeatureSmokeTest` covers hidden
+portals, cropped pixels and far-view reuse.
 
-Old classes to delete or reduce once replaced: `RendererUsingStencil`, `QueryManager`, `GlQueryObject`, `SecondaryFrameBuffer`,
-`MixinGlStateManager`, `MixinRenderSystem_Clipping`, `framebuffer/MixinRenderTarget`, `framebuffer/MixinMainTarget`, stencil parts of `MyRenderHelper`/`ViewAreaRenderer`.
+## Portal shapes, entities and camera views
 
-## Camera at the portal plane (walking through)
-- The portal surface emulates GL depth clamp per fragment (`portal_view.vsh/.fsh`: z is set to 0.5w so only
-  w>0 clips, and the real depth is written to gl_FragDepth). The mesh then covers exactly the rays that pass
-  through the opening, at any camera distance, like the original mod's stencil + GL_DEPTH_CLAMP.
-  Do not replace this with a full-screen quad or a per-vertex `min(z, w)`: both were tried and were wrong.
-- Portal view cameras use a 0.005 near plane (the original mod used depth clamp inside views).
-- The front clip plane is moved 0.01 towards the camera (upstream `FrontClipping.ADJUSTMENT`) to avoid
-  1-pixel cracks along the portal edges.
-- The portal layer is pushed before the view camera is set up, because preparing its cull frustum runs
-  `FrustumCuller`, which reads the current portal.
+- **At the portal plane:** `portal_view.vsh` sets rasterized z to `0.5w`, retaining the original z/w
+  for `portal_view.fsh` to clamp and write through `gl_FragDepth`. This emulates depth clamp for the
+  actual portal mesh as the camera approaches or crosses the opening. View cameras use near plane
+  `0.005`, or `0.05` with shaderpacks to match Iris' fixed `near` uniform. The portal layer is pushed
+  before camera/frustum setup because `FrustumCuller` reads it.
+- **Crossing entities:** `CrossPortalEntityRenderer` adds transformed entity render states in the
+  destination and tags original/projection states with outer/inner planes. `EntityClipping` tags
+  submissions and clips geometry on the CPU through wrapped vertex consumers (quads and triangle
+  strips), independently of Sodium/Iris shader choice. Projections retain source lighting.
+- **Mirrors:** a negative determinant in the accumulated camera transformation sets `ViewNode.isMirrored`.
+  Its extracted projection is flipped horizontally to restore triangle winding, including for Sodium.
+  Parent/child sampling mappings undo the image flip, also for nested mirrors and portals in mirrors.
+- **Global portals:** their views use the same traversal, but their surfaces are extracted separately
+  at the end of `LevelExtractor.extractVisibleEntities`. `GlobalPortalStorage` assigns unique negative
+  client entity IDs; view maps use portal identity.
+- **Cross-portal camera:** `CrossPortalViewRendering` handles a camera beyond a portal while the player
+  remains on the source side, such as third person. Its offscreen color/depth replace the main level
+  image before the main hand/3D HUD.
+- **GUI worlds:** `GuiPortalRendering.submitNextFrameRendering` queues window-sized depth-enabled
+  targets for the next frame's offscreen phase, including their portal children. New submissions for
+  the same target replace older ones; omitting the sky leaves a transparent background.
 
-## Shared render state and background threads
-`GameRenderer.gameRenderState()` is shared by the main view and all portal views (they run sequentially).
-Anything that reads it on another thread must get a snapshot: `SectionOcclusionGraph.scheduleFullUpdate`
-reads the camera state asynchronously, so `MixinSectionOcclusionGraph` passes it a copy
-(without it the main view intermittently lost its terrain).
+## Mid-frame invalidation and memory
 
-## Visual test
-`./gradlew runClientGameTest [-PipBackend=opengl|vulkan]` (Fabric client gametest, `src/gametest`) builds a
-nether->overworld portal scene with coloured marker walls, takes screenshots from fixed camera poses around
-and inside the portal plane plus a walk through it, and writes `build/visual-test/<backend>/*.png` and
-`poses.csv` (with section-visibility diagnostics). Expected images are described in `PortalVisualTest`.
+Geometry invalidation can recreate buffers and, with Sodium, wait for previous use. If a renderer
+already drew a view in the current frame, `MixinLevelExtractor.modifyShouldInvalidate` postpones that
+invalidation until `DimensionRenderHelper.processPostponedInvalidation` at the next frame's start.
+A renderer with no ViewArea can initialize immediately. This avoids waiting on the current submit.
 
-## Memory
-Every dimension has its own `LevelRenderer`, so vanilla's sizing, meant for one renderer showing a full render distance, is costly here.
-- Terrain buffers (`MixinSectionRenderDispatcher_CompactBuffers`): `UberGpuBuffer` allocates in slabs, 128 MiB for vertices and 32 MiB for indices per chunk layer, and only frees them with the renderer. They are 32 and 8 MiB here. `MixinUberGpuBuffer_FitLargeAllocation` grows the later slabs when one mesh doesn't fit, which vanilla can't place.
-- Staging (same mixin): each dispatcher's upload queue goes from 98 to 48 MiB. It is rewritten from the start every frame, so the pages it touched stay resident and native trimming can't reach them. Vanilla throws for a mesh larger than it, so `MixinStagingBuffer_SkipOversized` skips that section instead.
-- Idle dimensions (`DimensionRenderHelper.releaseWhenIdle`): a dimension that isn't the player's and no view has used for 2 minutes gets `LevelRenderer.resetLevelRenderData`. The renderer and extractor stay, because the `ClientLevel` holds them. `ensureTerrainAvailable` requests a rebuild before the next use. With Sodium this doesn't free its terrain memory.
-- Portal view targets (`PortalViewTargetPool.evictWhenIdle`): freed all at once after 600 frames without a view, because the slot index is part of the surface textures and render types.
-- Java and native heap (`HeapTrimmer`): loading allocates much more than it keeps. On joining, `MinHeapFreeRatio`/`MaxHeapFreeRatio` are lowered at runtime (G1 only) and one full GC runs behind the loading screen. On Linux the JVM's `System.trim_native_heap` runs on a background thread every minute. The heap still grows on demand.
-Comparing: `smoke_test.py client` records process, GPU and live heap memory; `SMOKE_CONFIG='{"trimJavaHeap":false}'` changes options for a run. `./gradlew runClientGameTest -Pperf` measures frame times, and `-Pimm_ptl.perf.memoryOpts=false` turns these options off.
+Optional memory controls account for multiple dimension renderers:
 
-## Mirrors
-A mirror view's rotation contains a reflection, which reverses triangle winding, so backface culling would
-remove the front faces. A view whose combined camera transformation has a negative determinant
-(`ViewNode.isMirrored`) is rendered with its projection flipped horizontally (on the extracted camera state in
-`PortalViewRenderer.renderCurrentView`, the only source of the level projection, so Sodium gets it too),
-which restores the winding. The image is then mirrored left-right, so a portal surface samples its view with x flipped
-when exactly one of the two views (the one drawing the surface and the portal's own) is mirrored (part of the view's
-`PortalViewCrop.Mapping`, see Cropped views). Nested mirrors and portals seen in mirrors follow from that rule.
-
-## Global portals
-Global portals (world wrapping, dimension stacks) are not in the level's entity list. Their surfaces are
-extracted at the end of `LevelExtractor.extractVisibleEntities`, and their views are planned with the others.
-On the client they are created from NBT with entity id 0, and in 26.3 `Entity.getId()`/`hashCode()`/`equals()`
-throw for id 0, so `GlobalPortalStorage` gives them unique negative ids. Maps keyed by portals use identity.
+- `compactTerrainBuffers` reduces vanilla terrain allocation slabs to 32 MiB vertex / 8 MiB index
+  and staging to 48 MiB per dispatcher. Large allocations can grow later slabs; a section exceeding
+  staging capacity is skipped by `MixinStagingBuffer_SkipOversized`.
+- `releaseIdleRenderers` resets terrain data for non-current dimensions unused for two minutes.
+  Renderer/extractor objects remain and request a rebuild on reuse. This does not release Sodium's
+  terrain memory.
+- The target pool is freed as a whole after 600 frames without use; target indices are also texture
+  and render-type indices.
+- `HeapTrimmer`, when enabled, requests collection during loading and adjusts G1 free-heap ratios.
+  On supported Linux JVM/libc combinations it also requests native-heap trimming in a background
+  thread every minute. These are memory-management options, not fixed memory guarantees.
 
 ## Sodium
-Sodium replaces the terrain renderer; its `SodiumWorldRenderer` is attached per `LevelRenderer`, so each
-dimension renderer has its own. Things the port does for it (`compat/mixin/sodium`, `OnSodiumPresent`):
-- `LevelExtractor.setLevel` binds the level to the Sodium renderer of `Minecraft.levelRenderer`, so a dimension
-  renderer is made current while its extractor's level is set (`DimensionRenderHelper.setExtractorLevel`).
-- ImmPtl replaces the client chunk cache, so chunk loads are reported to Sodium's chunk tracker (`OnSodiumPresent`).
-- Front clipping: the plane is appended to Sodium's `u_Globals` block (`sodium:globals.glsl` + `MixinSodiumGlobalUniforms`),
-  and its terrain shader is transformed like vanilla's. The plane is part of the uniform record's equality, because
-  `DynamicGpuDataStorageMapped` reuses the previous slot for equal data.
-- Culling: Sodium culls asynchronously and keeps the results per renderer. Portal views skip that and collect their
-  sections synchronously with Sodium's fallback traversal, and their camera doesn't count as a camera movement for
-  the renderer (`MixinSodiumRenderSectionManager`, `MixinSodiumWorldRenderer`).
-- A cull task still running when a renderer stops being the main view's (dimension change) is finished by its
-  portal views (`MixinSodiumRenderSectionManager.onPrepareRenderTrees`): until its result is consumed, Sodium queues
-  section adds/removes (QueuedSectionStorage safe read phase), so the renderer never got new chunks.
-- Mirror views get the flipped projection because it is flipped on the extracted camera state, which Sodium reads.
-Run the visual test with Sodium: `./gradlew runClientGameTest -PwithSodium` (output in `build/visual-test/<backend>-sodium`).
 
-## Iris (shaders)
-Iris runs shaderpacks only on the OpenGL backend. Without a shaderpack it behaves like Sodium.
-With a shaderpack, each portal view runs the pack's pipeline for that view (the views render sequentially).
-Front clipping for pack terrain programs: Iris compiles them from its own generated source, so
-`MixinIrisTransformPatcher` post-processes the output of `TransformPatcher.patchSodium` (non-shadow programs):
-the plane is added to Iris' `u_Globals` declaration (the buffer is Sodium's, which carries it), the clip distance
-is computed from `getVertexPosition()` after the pack's `main`, and the fragment shader discards.
-Pack programs of vanilla render types (entities, block entities, particles, clouds...) are post-processed the same way
-after `TransformPatcher.patchVanilla`: the plane is added to Iris' `iris_Projection` block (bound to the vanilla
-Projection buffer, which carries it), the view position is `ModelViewMat * (Position + ModelOffset)`.
-Shadow, sky and hand programs are left alone. Programs missing from the pack use Iris' own fallback shaders, which are
-not clipped. The test pack has `gbuffers_textured_lit` (entities fall back to it) for the `entity_front_ow` shot.
-Run the visual test with the test shaderpack (`src/gametest/resources/immptl_test_shaderpack`, magenta border):
-`./gradlew runClientGameTest -PwithShaders` (OpenGL only; Iris crashes when Vulkan is forced).
-With a real pack: `-PshaderPack=<path to the zip>` (output in build/visual-test/opengl-pack-<name>).
-Checked this way: Complementary Reimagined r5.9.3, BSL v10.1.8.
+Sodium attaches a `SodiumWorldRenderer` to each `LevelRenderer`. `DimensionRenderHelper.setExtractorLevel`
+makes the correct renderer current while binding its extractor, and `OnSodiumPresent` forwards chunk
+loads from ImmPtl's client chunk cache. `MixinSodiumGlobalUniforms` includes the front plane in the
+uniform data and its equality comparison, preventing reuse of a slot with another view's plane.
 
-### Portal surfaces with a shaderpack
-A view's target holds the pack's finished image. In the world pass a surface is treated as an unlit block, so the pack's lighting, bloom and tone mapping process that image again, which overexposes it. So `PortalSurfaceRendering` queues each surface when it is submitted (not in the shadow map, where a portal doesn't belong) and draws it a second time when the view's `IrisRenderingPipeline.finalizeLevelRendering` ends, on the pack's final image. The surface from the world pass stays, for its depth: the second draw has the same depth, so it only passes where nothing nearer was drawn over the surface. Players, mobs, the hand and glass in front stay on top. Testing against the depth before translucents was tried and is wrong: skins render as translucent, so a player in front of a portal disappeared. The transformation is captured at `beginTranslucents`, because it isn't in place yet at submission and the pack changes it later.
-Known gap: a surface in a view (a portal seen through a portal or a mirror) isn't replaced, so it stays overexposed. A small depth bias didn't change this. The cause isn't known.
-Redrawing a view's shadow map less often was tried too, and gained nothing measurable (43 FPS either way with Complementary).
+Portal views use synchronous fallback traversal instead of Sodium's asynchronous main-view culling,
+and do not register their camera as main-view movement. Pending main-view cull results are consumed
+when a dimension renderer becomes a portal renderer, so queued section changes can proceed.
+
+## Iris (shaderpacks)
+
+Shaderpacks use Iris' OpenGL pipeline, sequentially for each view. Vulkan shaderpack rendering is not
+supported by this path. Without a pack, terrain follows the Sodium path.
+
+### Shader programs and view uniforms
+
+`MixinIrisTransformPatcher` transforms non-shadow terrain output from `TransformPatcher.patchSodium`:
+it appends the clipping plane to the generated `u_Globals` declaration and computes distance from
+`u_ModelViewMatrix * getVertexPosition()` after the pack's vertex `main`. Vanilla-render-type pack
+programs from `patchVanilla` use `iris_Projection` and the Iris model-view/position fields. Shadow, sky
+and hand programs are excluded. `MixinIrisShaderCreator` also transforms compatible synthesized
+fallback programs when a pack omits a render type. Geometry/tessellation programs and unrecognized
+source layouts are not transformed; clipping is not guaranteed for arbitrary pack programs.
+
+`PortalViewEyeLight` supplies `eyeBrightness` and the hardcoded eye-sky-brightness value from the view
+camera in its current level, rather than the player's coordinates in that level. Biome uniforms still
+use the player. These adjustments do not establish independent exposure or temporal history per view.
+
+### Depth targets and final portal surfaces
+
+`MixinIrisRenderTargets` makes `RenderTargets.resizeIfNeeded` consider Java depth-texture identity as
+well as Iris' cached version. Versions belong to individual Minecraft targets: same-sized sibling,
+nested and main targets can have equal versions but different depth textures. Identity checks also
+handle same-size texture recreation without relying on reusable OpenGL names. A depth-only switch
+reattaches world-depth framebuffers without reallocating pack color targets. The pre-translucent and
+pre-hand copy destinations retain their own depth attachments, including replacements during a real
+resize; their copy sources must follow the selected view.
+
+A portal texture already contains its child's finished shaderpack image. The world-pass portal
+surface establishes depth, but pack postprocessing would process its color again.
+`PortalSurfaceRendering` therefore queues surfaces outside shadow rendering and redraws them after
+each view's `IrisRenderingPipeline.finalizeLevelRendering`, before the parent samples that target.
+`beginTranslucents` captures the world transform for matching depth. The final redraw uses the view's
+current depth attachment, preserving nearer depth-writing foreground geometry. This applies to
+sibling portals, nested portals and portals seen in mirrors. It does not establish correct blending
+through every translucent foreground or every pack's postprocessing.
+
+## Rendering tests and limits
+
+Fabric client gametests live in `src/gametest`. Run visual tests only headlessly or on an isolated
+display, never on the user's active desktop.
+
+- `./gradlew runClientGameTest [-PipBackend=opengl|vulkan]` runs the portal scene in `PortalVisualTest`:
+  fixed camera poses around the plane, crossing, entity clipping, mirrors and global portals.
+  Screenshots and diagnostics go to `build/visual-test/<backend>/`; poses and expected scene colors
+  are described in the test. `-PwithSodium` selects Sodium and the `-sodium` output suffix.
+- `-PwithShaders` selects Iris and the bundled diagnostic pack in
+  `src/gametest/resources/immptl_test_shaderpack` (OpenGL only). `-PshaderPack=<path to a zip>` selects
+  an external pack; merely providing this option is not evidence of compatibility.
+- `./gradlew runClientGameTest -PwithShaders -Pimm_ptl.irisDepthTest=true` enables
+  `IrisDepthRegressionTest`. It exercises the actual transformed Iris `RenderTargets`, checks real
+  framebuffer attachments and copied-depth pixels across equal-version target switches, recreation
+  and resizing, and checks scene pixels before and after shader reload. Its non-idempotent diagnostic
+  final shader detects repeated processing in siblings, nested portals and a portal inside a mirror;
+  an opaque foreground reference checks that replacement respects depth.
+- `-Pperf` enables the rendering benchmark; `-Pimm_ptl.perf.memoryOpts=false` disables its memory
+  options for comparison. A benchmark is not a visual-correctness or cross-hardware qualification.
+
+The targeted Iris regression covers the nested final-image/depth case, not universal shaderpack
+compatibility. It does not validate external Complementary or BSL packs, arbitrary translucency,
+exposure/temporal effects, all portal-shape/fuse-view/isometric combinations, every GPU/driver, or
+Vulkan parity. Those require separate, scoped validation rather than inference from diagnostic-pack
+pixels or screenshot creation.

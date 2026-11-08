@@ -1,9 +1,7 @@
 package qouteall.q_misc_util;
 
-import net.fabricmc.api.ClientModInitializer;
 
-public class MiscUtilModEntryClient implements ClientModInitializer {
-    @Override
+public class MiscUtilModEntryClient {
     public void onInitializeClient() {
         ImplRemoteProcedureCall.initClient();
         

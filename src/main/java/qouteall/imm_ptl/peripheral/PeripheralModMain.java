@@ -3,7 +3,6 @@ package qouteall.imm_ptl.peripheral;
 import com.mojang.serialization.MapCodec;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.creativetab.v1.FabricCreativeModeTab;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.block.state.BlockBehaviour;
@@ -28,6 +27,7 @@ import qouteall.imm_ptl.peripheral.portal_generation.IntrinsicPortalGeneration;
 import qouteall.imm_ptl.peripheral.wand.ClientPortalWandPortalDrag;
 import qouteall.imm_ptl.peripheral.wand.PortalWandInteraction;
 import qouteall.imm_ptl.peripheral.wand.PortalWandItem;
+import qouteall.imm_ptl.peripheral.wand.PortalWandItemClient;
 
 import java.util.function.BiConsumer;
 
@@ -56,7 +56,7 @@ public class PeripheralModMain {
     public static void initClient() {
         IPOuterClientMisc.initClient();
         
-        PortalWandItem.initClient();
+        PortalWandItemClient.init();
         
         ClientPortalWandPortalDrag.init();
     }

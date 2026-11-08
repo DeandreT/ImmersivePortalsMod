@@ -1,7 +1,7 @@
 package qouteall.imm_ptl.peripheral.wand;
 
 import com.mojang.logging.LogUtils;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import qouteall.imm_ptl.core.platform_shared.ServerTickEvents;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -33,6 +33,7 @@ import qouteall.q_misc_util.my_util.DQuaternion;
 import qouteall.q_misc_util.my_util.Plane;
 import qouteall.q_misc_util.my_util.Range;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.WeakHashMap;
@@ -804,7 +805,7 @@ public class PortalWandInteraction {
     }
     
     private static void handleConfirmCopyCut(ServerPlayer player, Vec3 origin, DQuaternion rawOrientation) {
-        CopyingSession copyingSession = copyingSessionMap.remove(player);
+        CopyingSession copyingSession = copyingSessionMap.get(player);
         
         if (copyingSession == null) {
             player.sendSystemMessage(Component.literal("Missing copying session"));
@@ -813,7 +814,7 @@ public class PortalWandInteraction {
         
         DQuaternion orientation = rawOrientation.fixFloatingPointErrorAccumulation();
         
-        if (player.position().distanceToSqr(origin) > 64 * 64) {
+        if (!(player.position().distanceToSqr(origin) <= 64 * 64)) {
             player.sendSystemMessage(Component.literal("Too far away from the portal"));
             return;
         }
@@ -832,7 +833,7 @@ public class PortalWandInteraction {
             player.level().dimension(),
             origin,
             orientation,
-            originalThisSide.width(), originalThisSide.height()
+            originalThisSide.width(), originalThisSide.height(), originalThisSide.thickness()
         );
         
         portal.setPortalState(UnilateralPortalState.combine(
@@ -840,31 +841,57 @@ public class PortalWandInteraction {
         ));
         portal.resetAnimationReferenceState(true, false);
         
+        List<Portal> portalsToSpawn = new ArrayList<>();
+        portalsToSpawn.add(portal);
+
         if (copyingSession.isCut()) {
-            McHelper.spawnServerEntity(portal);
             
             if (copyingSession.hasFlipped) {
                 Portal flippedPortal = PortalManipulation.createFlippedPortal(portal, Portal.ENTITY_TYPE);
                 flippedPortal.resetAnimationReferenceState(true, false);
-                McHelper.spawnServerEntity(flippedPortal);
+                portalsToSpawn.add(flippedPortal);
             }
             
             if (copyingSession.hasReverse) {
                 Portal reversePortal = PortalManipulation.createReversePortal(portal, Portal.ENTITY_TYPE);
                 reversePortal.resetAnimationReferenceState(false, true);
-                McHelper.spawnServerEntity(reversePortal);
+                portalsToSpawn.add(reversePortal);
                 
                 if (copyingSession.hasParallel) {
                     Portal parallelPortal = PortalManipulation.createFlippedPortal(reversePortal, Portal.ENTITY_TYPE);
                     parallelPortal.resetAnimationReferenceState(false, true);
-                    McHelper.spawnServerEntity(parallelPortal);
+                    portalsToSpawn.add(parallelPortal);
                 }
             }
         }
         else {
             PortalExtension.get(portal).bindCluster = false;
-            McHelper.spawnServerEntity(portal);
-            
+        }
+
+        // A rejected placement must leave a cut portal recoverable. Roll back
+        // any partially spawned cluster before allowing the player to retry.
+        List<Portal> spawned = new ArrayList<>();
+        try {
+            for (Portal portalToSpawn : portalsToSpawn) {
+                // Entity-load callbacks can throw after registration but before
+                // addFreshEntity returns. Roll back the current attempt too.
+                spawned.add(portalToSpawn);
+                if (!portalToSpawn.level().addFreshEntity(portalToSpawn)) {
+                    spawned.forEach(Entity::discard);
+                    player.sendSystemMessage(Component.literal("Cannot place portal"));
+                    return;
+                }
+            }
+        }
+        catch (RuntimeException exception) {
+            spawned.forEach(Entity::discard);
+            LOGGER.error("Cannot place portal cluster for {}", player, exception);
+            player.sendSystemMessage(Component.literal("Cannot place portal"));
+            return;
+        }
+        copyingSessionMap.remove(player, copyingSession);
+
+        if (!copyingSession.isCut()) {
             if (copyingSession.hasFlipped || copyingSession.hasReverse || copyingSession.hasParallel) {
                 player.sendSystemMessage(Component.translatable("imm_ptl.wand.copy.not_copying_cluster"));
                 giveCommandStick(player, "/portal complete_bi_way_bi_faced_portal");

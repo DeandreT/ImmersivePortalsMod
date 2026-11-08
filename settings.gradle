@@ -4,6 +4,13 @@ pluginManagement {
             name = 'Fabric'
             url = 'https://maven.fabricmc.net/'
         }
+        maven {
+            name = 'NeoForged'
+            url = 'https://maven.neoforged.net/releases/'
+            content {
+                includeGroupByRegex 'net\\.neoforged(\\..*)?'
+            }
+        }
         gradlePluginPortal()
 //        mavenLocal()
     }
@@ -23,4 +30,8 @@ includeBuild('dimlib') {
     dependencySubstitution {
         substitute module('qouteall.dimlib:dimlib') using project(':')
     }
+}
+
+includeBuild('neoforge') {
+    name = 'immersive-portals-neoforge'
 }

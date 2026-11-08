@@ -12,6 +12,17 @@ base {
 	archivesName = project.archives_base_name
 }
 
+sourceSets.main.java.srcDir('src/fabric/java')
+
+loom {
+    runs {
+        server {
+            runDir = providers.gradleProperty('dimlibRunDir').getOrElse('build/run-server')
+            programArgs '--nogui'
+        }
+    }
+}
+
 repositories {
 	mavenCentral()
 
@@ -38,6 +49,14 @@ dependencies {
 
 	compileOnly "maven.modrinth:modmenu:${modmenu_version}"
 	localRuntime "maven.modrinth:modmenu:${modmenu_version}"
+
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
 }
 
 processResources {
@@ -67,6 +86,12 @@ jar {
 	from("LICENSE") {
 		rename { "${it}_${project.base.archivesName.get()}"}
 	}
+    from('NOTICE')
+}
+
+tasks.named('sourcesJar', Jar) {
+    from('LICENSE') { rename { 'LICENSE_dimlib' } }
+    from('NOTICE') { rename { 'NOTICE_dimlib' } }
 }
 
 // configure the maven publication

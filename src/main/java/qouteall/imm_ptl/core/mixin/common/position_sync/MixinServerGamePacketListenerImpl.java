@@ -216,6 +216,28 @@ public abstract class MixinServerGamePacketListenerImpl implements IEServerPlayN
         this.player.connection.send(lookPacket);
     }
 
+    @Override
+    public void ip_sendPositionCorrection() {
+        if (player.getRemovalReason() != null) {
+            LOGGER.error("[ImmPtl] Cannot correct the position of a removed player {}", player);
+            return;
+        }
+
+        // Keep the normal teleport acknowledgement/timeout bookkeeping. Do not
+        // call teleportSetPosition: rollback has already restored the exact state.
+        this.awaitingTeleportTime = this.tickCount;
+        if (++this.awaitingTeleport == Integer.MAX_VALUE) {
+            this.awaitingTeleport = 0;
+        }
+        this.awaitingPositionFromClient = this.player.position();
+        this.ip_dimOfAwaitingPosition = this.player.level().dimension();
+        ClientboundPlayerPositionPacket lookPacket = ClientboundPlayerPositionPacket.of(
+            this.awaitingTeleport, PositionMoveRotation.of(this.player), Set.of()
+        );
+        ((IEPlayerPositionLookS2CPacket) (Object) lookPacket).ip_setPlayerDimension(this.player.level().dimension());
+        this.player.connection.send(lookPacket);
+    }
+
     // in 26.x it's isEntityCollidingWithAnythingNew, which is also used for vehicles
     @Inject(
         method = "isEntityCollidingWithAnythingNew", at = @At("HEAD"), cancellable = true

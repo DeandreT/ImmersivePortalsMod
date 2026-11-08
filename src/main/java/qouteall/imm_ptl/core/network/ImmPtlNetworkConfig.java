@@ -4,12 +4,8 @@ import com.mojang.authlib.GameProfile;
 import com.mojang.logging.LogUtils;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.networking.v1.ClientConfigurationNetworking;
-import net.fabricmc.fabric.api.client.networking.v1.ClientLoginConnectionEvents;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
-import net.fabricmc.fabric.api.networking.v1.ServerConfigurationConnectionEvents;
-import net.fabricmc.fabric.api.networking.v1.ServerConfigurationNetworking;
+import qouteall.imm_ptl.core.platform_shared.ConfigNetworking;
+import qouteall.imm_ptl.core.platform_shared.PlayNetworking;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.FriendlyByteBuf;
@@ -78,7 +74,7 @@ public class ImmPtlNetworkConfig {
         @Override
         public void start(Consumer<Packet<?>> consumer) {
             consumer.accept(
-                ServerConfigurationNetworking.createClientboundPacket(new S2CConfigStartPacket(
+                PlayNetworking.createClientboundPacket(new S2CConfigStartPacket(
                     immPtlVersion
                 ))
             );
@@ -113,13 +109,13 @@ public class ImmPtlNetworkConfig {
         
         // handled on client side
         @Environment(EnvType.CLIENT)
-        public void handle(ClientConfigurationNetworking.Context context) {
+        public void handle(ConfigNetworking.ClientContext context) {
             LOGGER.info(
                 "Client received ImmPtl config packet. Server mod version: {}", versionFromServer
             );
             
             serverVersion = versionFromServer;
-            context.responseSender().sendPacket(new C2SConfigCompletePacket(
+            context.reply(new C2SConfigCompletePacket(
                 immPtlVersion, IPConfig.getConfig().clientTolerantVersionMismatchWithServer
             ));
         }
@@ -155,7 +151,7 @@ public class ImmPtlNetworkConfig {
         
         // handled on server side
         public void handle(
-            ServerConfigurationNetworking.Context context
+            ConfigNetworking.ServerContext context
         ) {
             ServerConfigurationPacketListenerImpl networkHandler = context.packetListener();
             
@@ -190,7 +186,7 @@ public class ImmPtlNetworkConfig {
                 }
             }
             
-            networkHandler.completeTask(ImmPtlConfigurationTask.TYPE);
+            ConfigNetworking.completeTask(networkHandler, ImmPtlConfigurationTask.TYPE);
         }
         
         @Override
@@ -204,17 +200,17 @@ public class ImmPtlNetworkConfig {
         
         LOGGER.info("Immersive Portals Core version {}", immPtlVersion);
         
-        PayloadTypeRegistry.clientboundConfiguration().register(
+        ConfigNetworking.registerClientbound(
             S2CConfigStartPacket.TYPE, S2CConfigStartPacket.CODEC
         );
         
-        PayloadTypeRegistry.serverboundConfiguration().register(
+        ConfigNetworking.registerServerbound(
             C2SConfigCompletePacket.TYPE, C2SConfigCompletePacket.CODEC
         );
         
-        ServerConfigurationConnectionEvents.CONFIGURE.register((handler, server) -> {
-            if (ServerConfigurationNetworking.canSend(handler, S2CConfigStartPacket.TYPE)) {
-                handler.addTask(new ImmPtlConfigurationTask());
+        ConfigNetworking.registerConfigure((handler, server) -> {
+            if (ConfigNetworking.canSend(handler, S2CConfigStartPacket.TYPE)) {
+                ConfigNetworking.addTask(handler, new ImmPtlConfigurationTask());
             }
             else {
                 if (server.isDedicatedServer()) {
@@ -235,18 +231,18 @@ public class ImmPtlNetworkConfig {
                             ((IEServerConfigurationPacketListenerImpl) handler).ip_getGameProfile();
                         
                         LOGGER.warn(
-                            "Fabric API's sendable channel sync detected that client does not install ImmPtl. {} {}",
+                            "The loader's channel negotiation detected that client does not install ImmPtl. {} {}",
                             gameProfile.name(), gameProfile.id()
                         );
                     }
                 }
                 else {
-                    LOGGER.error("ImmPtl configuration channel is non-sendable from Fabric API in integrated server. Fabric API sendable channel sync is interfered.");
+                    LOGGER.error("ImmPtl configuration channel is unavailable in the integrated server. The loader's channel negotiation may have been interfered with.");
                 }
             }
         });
         
-        ServerConfigurationNetworking.registerGlobalReceiver(
+        ConfigNetworking.registerServerReceiver(
             C2SConfigCompletePacket.TYPE,
             C2SConfigCompletePacket::handle
         );
@@ -254,15 +250,13 @@ public class ImmPtlNetworkConfig {
     
     @Environment(EnvType.CLIENT)
     public static void initClient() {
-        // ClientConfigurationNetworking.ConfigurationPacketHandler does not provide
-        // ClientConfigurationPacketListenerImpl argument
-        ClientConfigurationNetworking.registerGlobalReceiver(
+        ConfigNetworking.registerClientReceiver(
             S2CConfigStartPacket.TYPE,
             S2CConfigStartPacket::handle
         );
         
-        ClientLoginConnectionEvents.INIT.register(
-            (handler, client) -> {
+        ConfigNetworking.registerLoginInit(
+            () -> {
                 LOGGER.info("Client login init");
                 // if the config packet is not received,
                 // serverProtocolInfo will always be nul
@@ -271,7 +265,7 @@ public class ImmPtlNetworkConfig {
             }
         );
         
-        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+        ConfigNetworking.registerJoin(() -> {
             onClientJoin();
             qouteall.imm_ptl.core.miscellaneous.HeapTrimmer.trimNow();
         });

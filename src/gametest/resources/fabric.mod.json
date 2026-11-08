@@ -8,6 +8,8 @@
     "fabric-client-gametest": [
       "qouteall.imm_ptl.gametest.PortalVisualTest",
       "qouteall.imm_ptl.gametest.FeatureSmokeTest",
+      "qouteall.imm_ptl.gametest.PortalRegressionTest",
+      "qouteall.imm_ptl.gametest.IrisDepthRegressionTest",
       "qouteall.imm_ptl.gametest.PerfBenchmark"
     ]
   },

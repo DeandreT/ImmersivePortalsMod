@@ -10,9 +10,9 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.JsonOps;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import qouteall.imm_ptl.core.platform_shared.PlayNetworking;
+import qouteall.imm_ptl.core.platform_shared.ClientPlatformHooks;
+import qouteall.imm_ptl.core.platform_shared.PlatformHooks;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -193,7 +193,7 @@ public class ImplRemoteProcedureCall {
             }
         }
         
-        public void handle(ServerPlayNetworking.Context c) {
+        public void handle(PlayNetworking.ServerContext c) {
             if (!deserializeSuccess) {
                 if (ERROR_MESSAGE_LIMIT.tryDecrement()) {
                     serverTellFailure(c.player());
@@ -286,7 +286,7 @@ public class ImplRemoteProcedureCall {
         }
         
         @Environment(EnvType.CLIENT)
-        public void handle(ClientPlayNetworking.Context c) {
+        public void handle(PlayNetworking.ClientContext c) {
             if (!deserializeSuccess) {
                 if (ERROR_MESSAGE_LIMIT.tryDecrement()) {
                     clientTellFailure();
@@ -315,15 +315,15 @@ public class ImplRemoteProcedureCall {
     }
     
     public static void init() {
-        PayloadTypeRegistry.serverboundPlay().register(
+        PlatformHooks.registerServerbound(
             C2SRPCPayload.TYPE, C2SRPCPayload.CODEC
         );
         
-        PayloadTypeRegistry.clientboundPlay().register(
+        PlatformHooks.registerClientbound(
             S2CRPCPayload.TYPE, S2CRPCPayload.CODEC
         );
         
-        ServerPlayNetworking.registerGlobalReceiver(
+        PlatformHooks.registerServerReceiver(
             C2SRPCPayload.TYPE, C2SRPCPayload::handle
         );
         
@@ -331,7 +331,7 @@ public class ImplRemoteProcedureCall {
     
     @Environment(EnvType.CLIENT)
     public static void initClient() {
-        ClientPlayNetworking.registerGlobalReceiver(
+        ClientPlatformHooks.registerClientReceiver(
             S2CRPCPayload.TYPE, S2CRPCPayload::handle
         );
     }
@@ -387,7 +387,7 @@ public class ImplRemoteProcedureCall {
         String methodPath,
         Object... arguments
     ) {
-        return ClientPlayNetworking.createServerboundPacket(
+        return PlayNetworking.createServerboundPacket(
             new C2SRPCPayload(
                 true, methodPath, null, List.of(arguments)
             )
@@ -398,7 +398,7 @@ public class ImplRemoteProcedureCall {
         String methodPath,
         Object... arguments
     ) {
-        return ServerPlayNetworking.createClientboundPacket(
+        return PlayNetworking.createClientboundPacket(
             new S2CRPCPayload(
                 true, methodPath, null, List.of(arguments)
             )

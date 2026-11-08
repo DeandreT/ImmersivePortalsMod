@@ -3,8 +3,8 @@ package qouteall.imm_ptl.core.portal.custom_portal_gen;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import com.mojang.logging.LogUtils;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
-import net.fabricmc.fabric.api.event.registry.DynamicRegistries;
+import qouteall.imm_ptl.core.platform_shared.PlatformHooks;
+import qouteall.imm_ptl.core.platform_shared.ServerLifecycleEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Registry;
 import net.minecraft.network.chat.Component;
@@ -41,11 +41,11 @@ public class CustomPortalGenManager {
     private final Map<UUID, WithDim<Vec3>> playerPosBeforeTravel = new HashMap<>();
     
     public static void init() {
-        DynamicRegistries.register(
+        PlatformHooks.registerDynamicRegistry(
             CustomPortalGeneration.REGISTRY_KEY,
             CustomPortalGeneration.CODEC
         );
-        DynamicRegistries.register(
+        PlatformHooks.registerDynamicRegistry(
             CustomPortalGeneration.LEGACY_REGISTRY_KEY,
             CustomPortalGeneration.CODEC
         );

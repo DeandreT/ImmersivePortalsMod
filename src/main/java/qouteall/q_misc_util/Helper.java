@@ -4,8 +4,7 @@ import com.google.common.collect.Streams;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import it.unimi.dsi.fastutil.objects.ObjectList;
-import net.fabricmc.fabric.api.event.Event;
-import net.fabricmc.fabric.api.event.EventFactory;
+import qouteall.imm_ptl.core.platform_shared.Event;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Vec3i;
@@ -1436,7 +1435,7 @@ public class Helper {
     }
     
     public static Event<Runnable> createRunnableEvent() {
-        return EventFactory.createArrayBacked(
+        return Event.createArrayBacked(
             Runnable.class,
             (listeners) -> () -> {
                 for (Runnable listener : listeners) {
@@ -1447,7 +1446,7 @@ public class Helper {
     }
     
     public static <T> Event<Consumer<T>> createConsumerEvent() {
-        return EventFactory.createArrayBacked(
+        return Event.createArrayBacked(
             Consumer.class,
             (listeners) -> (t) -> {
                 for (Consumer<T> listener : listeners) {
@@ -1458,7 +1457,7 @@ public class Helper {
     }
     
     public static <A, B> Event<BiConsumer<A, B>> createBiConsumerEvent() {
-        return EventFactory.createArrayBacked(
+        return Event.createArrayBacked(
             BiConsumer.class,
             (listeners) -> (a, b) -> {
                 for (BiConsumer<A, B> listener : listeners) {

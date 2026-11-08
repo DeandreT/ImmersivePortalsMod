@@ -2,8 +2,6 @@ package qouteall.dimlib;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.Environment;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.dimension.DimensionType;
@@ -13,7 +11,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.Map;
 import java.util.Set;
 
-@Environment(EnvType.CLIENT)
 public class ClientDimensionInfo {
     private static final Logger LOGGER = LogManager.getLogger();
     
@@ -34,8 +31,8 @@ public class ClientDimensionInfo {
         return dimensionIdToType;
     }
     
-    // this is invoked on networking thread (earlier than in client thread)
-    static void accept(ImmutableMap<ResourceKey<Level>, ResourceKey<DimensionType>> m) {
+    // Both loader adapters dispatch this on the client thread.
+    public static void accept(ImmutableMap<ResourceKey<Level>, ResourceKey<DimensionType>> m) {
         dimensionIdToType = m;
         dimensionIds = dimensionIdToType.keySet();
     }

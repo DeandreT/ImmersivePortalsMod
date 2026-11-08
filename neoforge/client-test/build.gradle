@@ -1,0 +1,100 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+group = 'qouteall.tests'
+version = '1.0'
+java { toolchain.languageVersion = JavaLanguageVersion.of(25) }
+def toolingLauncher = javaToolchains.launcherFor(java.toolchain)
+tasks.withType(net.neoforged.nfrtgradle.NeoFormRuntimeTask).configureEach {
+    javaExecutable.set(toolingLauncher.map { it.executablePath.asFile.absolutePath })
+}
+repositories {
+    mavenCentral()
+    exclusiveContent {
+        forRepository { maven { url = 'https://api.modrinth.com/maven' } }
+        filter { includeGroup 'maven.modrinth' }
+    }
+}
+def shared = new Properties()
+file('../../gradle.properties').withInputStream { shared.load(it) }
+def parentArtifact = file(providers.gradleProperty('parentArtifact').getOrElse(
+    '../build/libs/immersive-portals-7.0.1-dev-mc26.3-neoforge.jar'))
+def profile = providers.gradleProperty('clientProfile').getOrElse('vanilla')
+if (!(profile in ['vanilla', 'performance', 'performance-iris'])) {
+    throw new GradleException("Unknown clientProfile: ${profile}")
+}
+dependencies {
+    compileOnly files(parentArtifact)
+    // javac cannot see nested bundles; this is NOT a runtime dependency/substitution.
+    compileOnly files('../../dimlib/neoforge/build/libs/dimlib-neoforge-1.1.0+mc26.3.jar')
+    runtimeOnly files(parentArtifact)
+    if (profile != 'vanilla') {
+        def sodiumVersion = profile == 'performance-iris' ? shared.sodium_iris_neoforge_version : shared.sodium_neoforge_version
+        runtimeOnly "maven.modrinth:sodium:${sodiumVersion}"
+        runtimeOnly "maven.modrinth:lithium:${shared.lithium_neoforge_version}"
+        runtimeOnly "maven.modrinth:ferrite-core:${shared.ferritecore_neoforge_version}"
+        runtimeOnly "maven.modrinth:entityculling:${shared.entityculling_neoforge_version}"
+        runtimeOnly "maven.modrinth:immediatelyfast:${shared.immediatelyfast_neoforge_version}"
+    }
+    if (profile == 'performance-iris') {
+        runtimeOnly "maven.modrinth:iris:${shared.iris_neoforge_version}"
+    }
+}
+
+neoForge {
+    version = '26.3.0.101'
+    mods { ip_native_client_test { sourceSet(sourceSets.main) } }
+    runs {
+        smokeClient {
+            client()
+            gameDirectory = file(providers.gradleProperty('clientRunDir').getOrElse('build/disabled-run'))
+            programArguments.addAll('--graphicsBackend', 'opengl', '--username', 'NativeSmoke',
+                '--width', '1280', '--height', '800')
+            jvmArguments.addAll('-XX:ActiveProcessorCount=2', '-Xmx2G', '-Djava.awt.headless=true')
+            def run = providers.gradleProperty('clientRunDir').getOrNull()
+            if (run != null) { jvmArgument("-Duser.home=${file(run)}/home") }
+            ['clientRunDir', 'clientNonce', 'clientReportDir', 'parentArtifactSha256',
+             'dimlibSha256', 'clothSha256', 'awayTicks', 'shaderPackExpected'].each { key ->
+                systemProperty("ip.nativeClient.${key}", providers.gradleProperty(key).getOrElse(''))
+            }
+            systemProperty('ip.nativeClient.parentArtifact', parentArtifact.absolutePath)
+            systemProperty('ip.nativeClient.profile', profile)
+        }
+    }
+}
+tasks.withType(JavaCompile).configureEach { options.release = 25 }
+tasks.named('runSmokeClient') {
+    doFirst {
+        def directory = file(providers.gradleProperty('clientRunDir').getOrElse('build/disabled-run'))
+        def nonce = providers.gradleProperty('clientNonce').getOrElse('')
+        def marker = new File(directory, '.ip-native-client-owned')
+        if (nonce.size() < 32 || !marker.isFile() || marker.text.trim() != nonce) {
+            throw new GradleException('Use the explicit owned-world Python supervisor')
+        }
+        def stat = new File('/proc/self/stat').text
+        new File(directory, '.ip-native-client-gradle.json').text = groovy.json.JsonOutput.toJson([
+            pid: ProcessHandle.current().pid(),
+            start: stat.substring(stat.lastIndexOf(')') + 1).trim().split(/\s+/)[19], nonce: nonce
+        ])
+        def ids = [sodium: 'sodium', lithium: 'lithium', 'ferrite-core': 'ferritecore',
+                   entityculling: 'entityculling', immediatelyfast: 'immediatelyfast', iris: 'iris']
+        def optional = configurations.runtimeClasspath.resolvedConfiguration.resolvedArtifacts.findAll {
+            it.moduleVersion.id.group == 'maven.modrinth'
+        }.collect { artifact ->
+            [id: ids[artifact.name], path: artifact.file.canonicalPath,
+             version: artifact.moduleVersion.id.version,
+             sha256: java.security.MessageDigest.getInstance('SHA-256').digest(artifact.file.bytes).encodeHex().toString()]
+        }
+        if (optional.any { it.id == null }) { throw new GradleException('Unrecognized optional runtime mod') }
+        def report = file(providers.gradleProperty('clientReportDir').get())
+        new File(report, 'runtime-mods.json').text = groovy.json.JsonOutput.toJson(optional)
+        // Last action before native game dispatch, after any dependency resolution.
+        providers.exec {
+            commandLine('python3', file('test_client.py'), '--verify-dispatch', '--accept-eula',
+                '--display-wrapper', providers.gradleProperty('displayWrapper').getOrElse(''),
+                '--run-dir', directory, '--nonce', nonce)
+        }.result.get().assertNormalExitValue()
+    }
+}

@@ -1,7 +1,7 @@
 package qouteall.imm_ptl.core.chunk_loading;
 
 import net.minecraft.util.profiling.Profiler;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import qouteall.imm_ptl.core.platform_shared.ServerTickEvents;
 import net.minecraft.network.protocol.game.ClientboundGameEventPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTimePacket;
 import net.minecraft.resources.ResourceKey;

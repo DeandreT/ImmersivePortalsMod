@@ -1,5 +1,7 @@
 package qouteall.imm_ptl.peripheral;
 
+import qouteall.imm_ptl.core.platform_shared.PlatformHooks;
+
 import net.minecraft.server.permissions.LevelBasedPermissionSet;
 import java.util.function.Consumer;
 import net.minecraft.world.item.component.TooltipDisplay;
@@ -207,7 +209,7 @@ public class CommandStickItem extends Item {
     }
     
     public static void init() {
-        Registry.register(
+        PlatformHooks.register(
             BuiltInRegistries.DATA_COMPONENT_TYPE,
             "iportal:command_stick_data",
             COMPONENT_TYPE

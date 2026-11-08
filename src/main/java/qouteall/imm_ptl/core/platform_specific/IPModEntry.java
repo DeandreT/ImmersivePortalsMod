@@ -1,27 +1,26 @@
 package qouteall.imm_ptl.core.platform_specific;
 
-import net.fabricmc.api.ModInitializer;
-import net.fabricmc.loader.api.FabricLoader;
+import qouteall.imm_ptl.core.platform_shared.ModPlatform;
+import qouteall.imm_ptl.core.platform_shared.PlatformHooks;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import qouteall.imm_ptl.core.IPModMain;
 import qouteall.imm_ptl.core.compat.GravityChangerInterface;
 import qouteall.q_misc_util.Helper;
 
-public class IPModEntry implements ModInitializer {
+public class IPModEntry {
     
-    @Override
     public void onInitialize() {
         IPModMain.init();
         RequiemCompat.init();
         
         IPModMain.registerEntityTypes(
-            (id, entityType) -> Registry.register(BuiltInRegistries.ENTITY_TYPE, id, entityType)
+            (id, entityType) -> PlatformHooks.register(BuiltInRegistries.ENTITY_TYPE, id, entityType)
         );
         
-        IPModMain.registerBlocks((id, obj) -> Registry.register(BuiltInRegistries.BLOCK, id, obj));
+        IPModMain.registerBlocks((id, obj) -> PlatformHooks.register(BuiltInRegistries.BLOCK, id, obj));
         
-        if (FabricLoader.getInstance().isModLoaded("dimthread")) {
+        if (ModPlatform.isModLoaded("dimthread")) {
             O_O.isDimensionalThreadingPresent = true;
             Helper.log("Dimensional Threading is present");
         }
@@ -29,7 +28,7 @@ public class IPModEntry implements ModInitializer {
             Helper.log("Dimensional Threading is not present");
         }
         
-        if (FabricLoader.getInstance().isModLoaded("gravity_changer_q")) {
+        if (ModPlatform.isModLoaded("gravity_changer_q")) {
             // TODO(26.3): re-enable once compat is ported
             // GravityChangerInterface.invoker = new OnGravityChangerPresent();
             Helper.log("Gravity API is present");

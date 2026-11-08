@@ -1,5 +1,7 @@
 package qouteall.imm_ptl.core.chunk_loading;
 
+import qouteall.imm_ptl.core.platform_shared.PlatformHooks;
+
 import com.mojang.logging.LogUtils;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
@@ -65,7 +67,7 @@ public class ImmPtlChunkTickets {
     // In 26.3 TicketType is no longer generic and must be registered.
     // The old ticket (added via DistanceManager.addRegionTicket) affected both loading and simulation,
     // and was not persistent and had no timeout.
-    public static final TicketType TICKET_TYPE = Registry.register(
+    public static final TicketType TICKET_TYPE = PlatformHooks.register(
         BuiltInRegistries.TICKET_TYPE,
         Identifier.fromNamespaceAndPath("imm_ptl", "imm_ptl"),
         new TicketType(TicketType.NO_TIMEOUT, TicketType.FLAG_LOADING | TicketType.FLAG_SIMULATION)

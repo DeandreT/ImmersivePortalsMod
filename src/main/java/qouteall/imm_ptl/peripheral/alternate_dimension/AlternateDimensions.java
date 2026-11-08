@@ -1,6 +1,6 @@
 package qouteall.imm_ptl.peripheral.alternate_dimension;
 
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import qouteall.imm_ptl.core.platform_shared.ServerTickEvents;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
 import net.minecraft.core.Registry;

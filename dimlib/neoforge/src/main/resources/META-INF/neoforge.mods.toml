@@ -1,0 +1,26 @@
+license="Apache-2.0"
+
+[[mods]]
+modId="dimlib"
+version="${version}"
+displayName="DimLib (Unofficial 26.3 Port)"
+authors="qouteall"
+logoFile="assets/dimlib/icon.png"
+description='''Dynamically add and remove dimensions, with persistent level settings and client dimension synchronization.'''
+
+[[mixins]]
+config="dimlib.mixins.json"
+
+[[dependencies.dimlib]]
+modId="neoforge"
+type="required"
+versionRange="[26.3.0.101,26.4)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.dimlib]]
+modId="minecraft"
+type="required"
+versionRange="[26.3,26.4)"
+ordering="NONE"
+side="BOTH"

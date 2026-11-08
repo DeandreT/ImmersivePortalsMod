@@ -1,186 +1,114 @@
-# Immersive Portals Mod (Revived)
+# Immersive Portals — Minecraft 26.3
 
-A Minecraft mod that provides see-through portals and seamless teleportation. It can also create "Non-Euclidean" space effects.
+See through portals and cross them without a loading screen. This development fork targets **Fabric and native NeoForge**, sharing portal, rendering, networking and dimension logic. NeoForge does not load a Fabric jar or require a compatibility loader.
 
-![immptl.png](https://i.loli.net/2021/09/30/chHMG45dsnZNqep.png)
+The starting point is [Immersive Portals Revived](https://github.com/riyadmondol2006/Immersive-portals-mod-Revived-), incorporating the [ImmersivelyVibedPortals 26.3 port](https://github.com/nyannoying1337/ImmersivelyVibedPortals/tree/port/26.3). The [original project](https://github.com/iPortalTeam/ImmersivePortalsMod) is archived. Preserve the attribution in [NOTICE](NOTICE) and [DimLib's NOTICE](dimlib/NOTICE).
 
-This is a community fork, updated to **Minecraft 26.3** and tuned to use less memory. The [original project](https://github.com/iPortalTeam/ImmersivePortalsMod) by qouteall is archived and no longer maintained, so please report problems here rather than to the original author.
+> Back up worlds before installing a development build. Use the same loader and mod build on the server and every client. A successful build is not proof that every mod combination or shader pack works.
 
-**[Download the latest build](https://github.com/riyadmondol2006/Immersive-portals-mod-Revived-/releases/latest)**
+## Runtime targets
 
-> [!WARNING]
-> Portal rendering was redesigned for Minecraft's new graphics layer. Back up your worlds before installing, and don't use this on worlds you can't afford to lose.
+Both loaders use Minecraft **26.3** and **Java 25**.
 
-## Requirements
-
-* Minecraft 26.3 with [Fabric Loader](https://fabricmc.net/use/) 0.19.5 or newer (tested with 0.20.1)
-* Java 25
-* [Fabric API](https://modrinth.com/mod/fabric-api) 0.161.0 or newer (tested with 0.165.2)
-
-DimLib and Cloth Config are bundled in the jar. [Sodium](https://modrinth.com/mod/sodium) and [Iris](https://modrinth.com/mod/iris) are optional, and were tested with `mc26.3-0.9.2-fabric` and `1.11.7+26.3-fabric`.
-
-Saved data and add-ons keep working as far as they target 26.3, because the mod ID is still `immersive_portals`. Builds for older Minecraft versions are in the [`v6.0.6-mc1.21.1` releases](https://github.com/riyadmondol2006/Immersive-portals-mod-Revived-/releases).
-
-## Just a seamless portal — no items needed
-
-Build a normal obsidian frame, light it with flint and steel, and walk through: no loading screen,
-and the world on the other side is visible through the opening. That is the whole mod in normal play.
-The portal wand, portal helper, command sticks and mirrors are admin/creative tools from the original
-mod: they are not in the creative inventory and mirror creation is off by default. They still exist
-for `/give` and `/portal` commands, and mirror creation can be turned back on in the config
-(`enableMirrorCreation`).
-
-## What works
-
-Each of these is checked automatically in the real game on every push:
-
-* See-through Nether portals, crossed without a loading screen, in singleplayer and with two players on a dedicated server
-* End portals, the End and the return trip
-* Portals to far places in the same dimension, rotating portals and mirrors
-* World wrapping and dimension stacks
-* The `/portal` commands, portal wand, portal helper, command stick and custom portal generation from data packs
-* Sodium and Iris (without a shader pack)
-
-## Playing on a server
-
-Install the mod on the **server and on every player's game**, with Fabric API on both. The server has to send the world on the other side of a portal, and the client has to draw it. A player without the mod is refused when joining, and the other players aren't affected.
-
-Minecraft 26.3 servers have the whitelist on by default, so players are refused with "You are not white-listed" until you add them with `/whitelist add <name>` or set `white-list=false` in `server.properties`.
-
-Use the same build on the server and the clients. In testing, with two players and a portal in use, a dedicated server used about 850 MB of memory at under 2 ms per tick. That was a flat test world, so expect more on a real one.
-
-## Shader packs
-
-Iris needs the OpenGL backend. Shader packs are checked by hand, not on every push: the last check used Complementary Reimagined r5.9.3 and a lightweight pack called Gotham on an NVIDIA GTX 1650.
-
-The view through a portal is the pack's finished image. It's drawn directly on the pack's final image, so the pack doesn't process it twice. Players, mobs, your hand and glass in front of a portal still draw on top.
-
-Known limits with a shader pack:
-
-* A portal seen through another portal or a mirror can look overexposed.
-* A portal seen through glass or water is processed by the pack, so it can look overexposed there too.
-* Your pack runs once for the world and once for each visible portal, so expect a large frame rate drop while a portal is on screen.
-
-## Frame rate
-
-Measured on an NVIDIA GTX 1650 at 1080p and render distance 12, in a flat test world:
-
-| | No portal in view | One portal in view |
-|---|---:|---:|
-| No shader pack | 500 FPS | about 410 FPS |
-| Gotham | 185 FPS | about 100–120 FPS |
-| Complementary Reimagined | 76 FPS | about 45–50 FPS |
-
-If your game lags, try these:
-
-* Lower your **simulation distance**, especially if the log shows `Can't keep up` messages. Those mean the game's server side is falling behind, and it has to tick everything within this distance.
-* Lower your **render distance**. Each portal draws the world on its other side as well.
-* Use a lighter shader pack, or lower your pack's settings.
-* Choose the Performance preset in the mod's config screen.
-
-Standing at a portal now loads at most 12 chunks of the other side, instead of your whole render distance. At render distance 32 that lowered the chunks held in memory by 42%. Once you've crossed, the rest loads normally.
-
-## The obsidian frame on the other side
-
-When you light a Nether portal and no portal exists on the other side yet, the mod builds one there:
-an obsidian frame the same size as yours (that frame is what makes the portal break correctly when you
-mine it). Generated frames are placed on the ground, not floating in the air; where the ground cannot be
-reached (for example over a lava lake) a one-block obsidian step is added under the frame so you can walk
-out. If you do not want the frame, remove it after the portal exists only if you replace it with the same
-obsidian outline — the portal checks that outline.
-
-For the smoothest portal view: use the Balanced preset (default, portal-in-portal depth 3; with a
-shaderpack the depth is capped at 2 because shaderpack views cannot be cropped to the portal's screen
-area), or the Performance preset in the config screen if frames still drop. Lowering render distance
-helps portal views more than the main view, because the world behind the portal is drawn as well.
-
-## Memory use
-
-Most of what this mod used to cost was memory it wasn't using, so it now uses less than the unmodded game in the scenes below. These were measured with one portal in view on an AMD Renoir APU, using the official launcher's Java flags, at 480p in singleplayer:
-
-| Render distance 12 | Unmodded game | Mod, optimizations off | **Mod** |
-|---|---:|---:|---:|
-| Process memory | 1,897 MB | 1,870 MB | **1,468 MB** |
-| GPU memory | 424 MB | 688 MB | **279 MB** |
-
-| Other scenes | Unmodded game | Mod, optimizations off | **Mod** |
-|---|---:|---:|---:|
-| Render distance 6: process memory | 1,414 MB | 1,521 MB | **1,276 MB** |
-| Render distance 6: GPU memory | 423 MB | 688 MB | **277 MB** |
-| Render distance 6, no portal nearby: GPU memory | 423 MB | 425 MB | **209 MB** |
-| Sodium and Iris, render distance 6: process memory | not measured | 2,001 MB | **1,500 MB** |
-| Dedicated server, no players: process memory | 756 MB | 815 MB | **715 MB** |
-
-These runs last a few minutes with a single portal, and each was mostly run once, so treat small differences as noise. Long sessions, many portals and busy servers aren't covered, and more portals in view will use more than this.
-
-### What was using the memory, and what changed
-
-| Cost | Change | Config option |
+| Loader | Development target | Additional installation |
 |---|---|---|
-| Each dimension's renderer reserved terrain buffers in 128 MiB blocks, mostly empty | Blocks are now 32 MiB (8 MiB for indices), and grow if one mesh needs more. This helps the player's main renderer too | `compactTerrainBuffers` |
-| Java kept the free memory left over from loading: about 300 MB of live data could hold 800 MB | After joining a world, Java is told to return free memory, and it does so once while the loading screen hides the pause | `trimJavaHeap` |
-| On Linux, the C library kept about 200 MB of freed native memory after loading | Returned after joining, and then once a minute on a background thread | `trimJavaHeap` |
-| Dimensions you visited once kept their terrain data | Released after 2 minutes unseen, and rebuilt when you see them again, so terrain can take a moment to appear after a long stay away | `releaseIdleRenderers` |
-| Portal images stayed allocated after you looked away | Freed after 600 frames with no portal rendered | Always on |
+| Fabric | Loader 0.20.1, Fabric API 0.165.2+26.3 | Fabric API on server and clients |
+| NeoForge | 26.3.0.101 | No Fabric dependencies |
 
-The options are in the mod's config screen under the client tab, or in `config/immersive_portals.json`. Some limits:
+Matching-loader DimLib and Cloth Config are bundled. Performance mods are optional and are **not** bundled.
 
-* **Garbage collection:** a smaller Java heap collects more often. In testing this went from 113 ms to about 170–250 ms of pauses over two minutes, with a similar longest pause.
-* **Frame rate:** it hasn't been measured directly, because the benchmark runs at a fixed pace. The CPU time spent rendering 8 portal views didn't change (about 2.5 ms per frame with the optimizations on or off). Smaller terrain buffers could add some draw batches at very high render distances.
-* **Heap trimming:** it only applies to the G1 collector, which the official launcher uses. If you set `-Xms`, Java won't go below that value.
-* **Sodium:** it manages its own terrain memory, so the terrain buffer and renderer options don't reduce its GPU memory.
+Build a normal obsidian portal frame, light it, and walk through. The mod also provides End portals, mirrors, rotated/scaled portals, world wrapping, dimension stacks, custom portal generation and administrative tools. Some tools are accessed through commands rather than the creative inventory; mirror creation is controlled by `enableMirrorCreation`.
 
-To save more, lower your render distance, or choose the Performance preset in the mod's config screen.
+## Build
 
-## Releases
-
-Every push runs [this workflow](.github/workflows/release.yml), and a release is only created if all of it passes:
-
-1. Build the jar and run the unit tests.
-2. Start a real Fabric server with the jar, and check that a portal stays alive.
-3. Start a real Fabric client with the jar, with and without Sodium and Iris. It checks that the Nether is visible through a portal, drops the player through, waits for the idle overworld to be released, returns, and checks that the terrain and portal view came back.
-4. Start a dedicated server with the jar, and join it with two real clients. Both must cross a portal, and a client without the mod must be refused.
-5. Compare memory with an unmodded baseline, and fail if the mod costs more than the [budgets](.github/scripts/smoke_test.py).
-6. Run the in-game feature suite.
-7. Publish the jar and its checksum as a [GitHub release](https://github.com/riyadmondol2006/Immersive-portals-mod-Revived-/releases).
-
-Pushes to the default branch become the latest release, and other branches become pre-releases. Add `[skip ci]` to a commit message to skip a run. Each run keeps its screenshots, logs and memory numbers in the `smoke-test-evidence` artifact.
-
-## Building and testing
-
-You need JDK 25. DimLib has no official 26.x release, so its port lives in [`dimlib/`](dimlib) and is built along with the mod.
+From the repository root, with `JAVA_HOME` pointing to JDK 25:
 
 ```sh
-./gradlew build
+sh ./gradlew --no-daemon --max-workers=2 buildAll testAll
 ```
 
-The jar is written to `build/libs/`. To run the same checks as the release workflow, you need Python 3, `xdotool`, `ffmpeg` and a display:
+Use `gradlew.bat` on Windows. The wrapper uses Gradle 9.8.2; no system Gradle is needed. Fabric uses Loom 1.19.4, and NeoForge uses ModDevGradle 2.0.148. Minecraft 26.3 is unobfuscated: neither build uses legacy remapping.
+
+Runtime artifacts:
+
+- Fabric: `build/libs/immersive-portals-7.0.1-dev-mc26.3-fabric.jar`
+- NeoForge: `neoforge/build/libs/immersive-portals-7.0.1-dev-mc26.3-neoforge.jar`
+
+`build` and `test` select the root Fabric project; `buildAll` and `testAll` include the native composite. See [native loader development](neoforge/README.md) and [bundled DimLib](dimlib/README.md) for separate builds and dimension persistence checks.
+
+Rebuild the outer artifacts after changing a bundled library. Testing a standalone DimLib jar does not validate an older copy embedded in the mod.
+
+## Compatibility profiles
+
+Development runs accept `-PcompatProfile=<name>`:
+
+- `vanilla`: no optional performance mods.
+- `sodium`: Sodium.
+- `iris`: Sodium and Iris, without enabling an external shader pack.
+- `performance`: Sodium, Lithium, FerriteCore, Entity Culling and ImmediatelyFast.
+- `shaders`: the performance profile plus Iris. Fabric client gametests can enable the bundled diagnostic shader pack; native runs need a separately selected pack.
+
+Fabric pins Sodium 0.9.2. NeoForge pins Sodium 0.9.3-beta.4 for Sodium/performance profiles and the original 0.9.3-beta.1 for Iris/shader profiles with Iris 1.11.7. Beta.4 requires Iris 1.11.8 or newer and must not be paired with 1.11.7; beta.1 is a separate published API-compatible pairing, not a metadata override. All runtime jars retain their original dependency checks and bytes.
+
+The other pinned targets are Iris 1.11.7, Lithium 0.26.3, FerriteCore 9.0.0, Entity Culling 1.11.3 and ImmediatelyFast 1.17.1, using their **26.3, loader-specific** artifacts. Exact coordinates are in [gradle.properties](gradle.properties). Profile selection supplies development dependencies; it is not a certification of arbitrary versions or additional mods.
+
+Iris requires the OpenGL backend. Portal views use the shader pack's finished image and are redrawn after its final world pass. Nearer opaque geometry must still occlude them. Iris world-depth attachments track actual texture identity across sequential portal views, while copied-depth targets retain their separate attachments.
+
+Shader-pack limits:
+
+- Glass, water, nested views and mirrors can interact with a pack's exposure and postprocessing. There is no universal pre-tonemap color-buffer contract across shader packs.
+- Lighting, temporal history and non-sRGB presentation behavior need pack-specific checks. Do not infer support for every pack from the diagnostic pack.
+- Each visible portal adds another world view, so shader work grows with the number of views.
+
+The inherited Flywheel, Cardinal Components and Gravity Changer integrations are excluded from these builds. They are not declared compatible with 26.3.
+
+## Verification
+
+Non-game runner safety tests:
 
 ```sh
-JAR=$(ls build/libs/*-fabric.jar)
-python3 .github/scripts/smoke_test.py server --jar "$JAR" --work /tmp/smoke-server
-xvfb-run -a -s "-screen 0 854x480x24" python3 .github/scripts/smoke_test.py client --jar "$JAR" --work /tmp/smoke-client
-xvfb-run -a -s "-screen 0 1280x720x24" ./gradlew runClientGameTest -Pimm_ptl.visualTest.skip=true
+python -m unittest discover -s tests -v
 ```
 
-Without a GPU, set `SDL_VIDEO_FORCE_EGL=1` and `LIBGL_ALWAYS_SOFTWARE=1`, because Xvfb's software OpenGL has no sRGB-capable modes and Minecraft 26.x asks for one. If you don't have `xvfb-run`, `gamescope --backend headless -W 854 -H 480 -w 854 -h 480 --` works in its place, but it hides the exit code, so check the output for `[smoke] PASSED`. The feature suite writes its results to `build/feature-test/report.txt`.
+Fabric's client gametest suite includes feature, rendering, teleport validation, private tracking, cut/paste and passenger-tree regressions:
 
-The rendering design is described in [docs/rendering-26.3.md](docs/rendering-26.3.md). For general mod development setup, see the [Fabric documentation](https://docs.fabricmc.net/develop/).
+```sh
+sh ./gradlew compileGametestJava
+sh ./gradlew runClientGameTest -PcompatProfile=performance
+```
 
-## API
+Run visual tests only on an **owned private display**, never an existing desktop display. Isolate the runtime directory and remove inherited Wayland/session variables. On software-rendered Linux, use `SDL_VIDEO_FORCE_EGL=1`, `LIBGL_ALWAYS_SOFTWARE=1` and `SDL_VIDEODRIVER=x11`. Set `-Djava.awt.headless=true` for test JVMs so a failed test cannot hang on a Java crash dialog; Minecraft's SDL window still uses the private display. Bound test-process lifetimes and retain failure logs.
 
-This mod also provides an API for:
+The opt-in Iris attachment/depth regression uses the diagnostic shader pack:
 
-* Managing see-through portals
-* Dynamically adding dimensions
-* Synchronizing remote chunks to the client
-* Rendering the world into a GUI
-* Other utilities
+```sh
+sh ./gradlew runClientGameTest -PwithShaders \
+  -Pimm_ptl.irisDepthTest=true \
+  -Pimm_ptl.visualTest.skip=true -Pimm_ptl.featureTest.skip=true
+```
 
-See the [API description](https://qouteall.fun/immptl/wiki/API-for-Other-Mods.html) and [implementation details](https://qouteall.fun/immptl/wiki/Implementation-Details). These pages describe the original 1.21 version, so some details differ.
+For the focused custom-datapack portal regression, use `-Pimm_ptl.featureTest.only=customportal -Pimm_ptl.visualTest.skip=true`. It creates a disposable creative world, generates a separate Nether chunk in the destination's region, then reopens the save with the test datapack. This exercises the normal existing-region frame search rather than only the cheaper cold-destination path.
+
+`.github/scripts/smoke_test.py` exercises a packaged Fabric jar with real client/server processes. Its scratch directory must be new or marked as owned by that runner. Offline test servers bind to localhost. Do not point test runs at existing saves; obtain the operator's Minecraft EULA acceptance before starting disposable servers.
+
+Keep the smoke runner's default render distance of 6 for its fixed local-terrain crop. Non-shader runs require that same crop to contain green terrain before crossing and after returning; a crop outside the initially loaded terrain is a fixture error, not evidence that return terrain disappeared.
+
+Development-classpath tests, packaged-artifact checks, dedicated-server launches and real client tests cover different failure modes. Native `verifyLoaderIsolation` checks the produced jar's descriptors, access transformer and dependency coordinates, and rejects Fabric/Mod Menu class references.
+
+The standalone [native real-client runner](neoforge/client-test/README.md) exercises the packaged jar with a real client and integrated server, authentic portal prediction, settled crossings and return-framebuffer checks. The [native recovery harness](neoforge/recovery-test/README.md) separately exercises server admission and recovery failures. Its synthetic connections do not establish connected multiplayer behavior; neither harness qualifies remote TCP multiplayer or hardware performance.
+
+## Configuration and API
+
+Configuration is in `config/immersive_portals.json`. Lower simulation/render distances and portal depth when many views are active. Compact terrain buffers, idle-renderer release and heap trimming are configurable; Sodium manages its own terrain memory.
+
+The mod API manages portals, dynamic dimensions, remote chunks and GUI world views. Public callbacks now use loader-neutral `platform_shared.Event` and DimLib `DimensionEvent`. Registration and phase-ordering operations remain available, but **precompiled consumers of the old Fabric event field descriptors must be rebuilt**. See [the native API notes](neoforge/README.md#platform-boundaries).
+
+The original [API guide](https://qouteall.fun/immptl/wiki/API-for-Other-Mods.html) and [implementation details](https://qouteall.fun/immptl/wiki/Implementation-Details) describe older Minecraft versions; consult the current source for exact signatures.
 
 ## Credits
 
-* Created by [qouteall](https://www.patreon.com/qouteall) and contributors, licensed under [Apache-2.0](LICENSE)
-* The port to 26.3 is based on [ImmersivelyVibedPortals](https://github.com/nyannoying1337/ImmersivelyVibedPortals) and its [DimLib port](https://github.com/nyannoying1337/DimLib) by nyannoying1337. See [NOTICE](NOTICE) for the changes
-* [Wiki](https://qouteall.fun/immptl/wiki/) and [Discord server](https://discord.gg/BZxgURK) of the original project
+- qouteall and the original Immersive Portals contributors.
+- nyannoying1337, for the 26.3 renderer and DimLib ports.
+- riyadmondol2006 and the Revived contributors, for the reused development baseline.
+
+Licensed under [Apache-2.0](LICENSE). DimLib's license and notices are retained separately.

@@ -2,8 +2,8 @@ package qouteall.imm_ptl.core;
 
 import com.google.gson.Gson;
 import me.shedaniel.autoconfig.ConfigHolder;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.event.Event;
+import qouteall.imm_ptl.core.platform_shared.ClientTickEvents;
+import qouteall.imm_ptl.core.platform_shared.Event;
 import net.minecraft.server.MinecraftServer;
 import qouteall.imm_ptl.core.platform_specific.IPConfig;
 import qouteall.q_misc_util.Helper;

@@ -3,6 +3,10 @@
 // Test pack for the ImmPtl visual test: passes the scene through unchanged and draws a magenta border,
 // so screenshots show that the pack is active.
 
+// Opt-in diagnostic mode used by IrisDepthRegressionTest. Unlike the normal pass-through, this
+// transform is deliberately not idempotent: processing an already finished portal image is visible.
+#define IMMPTL_DEPTH_REGRESSION 0 // [0 1]
+
 uniform sampler2D colortex0;
 uniform float viewWidth;
 uniform float viewHeight;
@@ -11,6 +15,9 @@ varying vec2 texcoord;
 
 void main() {
     vec3 color = texture2D(colortex0, texcoord).rgb;
+#if IMMPTL_DEPTH_REGRESSION == 1
+    color = color * 0.5 + vec3(0.125);
+#endif
     vec2 pixel = texcoord * vec2(viewWidth, viewHeight);
     if (pixel.x < 6.0 || pixel.y < 6.0 || pixel.x > viewWidth - 6.0 || pixel.y > viewHeight - 6.0) {
         color = vec3(1.0, 0.0, 1.0);

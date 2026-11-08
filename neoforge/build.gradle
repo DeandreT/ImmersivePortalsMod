@@ -1,0 +1,208 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+def sharedProperties = new Properties()
+file('../gradle.properties').withInputStream { sharedProperties.load(it) }
+def shared = { String name -> providers.gradleProperty(name).getOrElse(sharedProperties.getProperty(name)) }
+version = shared('mod_version') + (providers.gradleProperty('build_number').isPresent() ? "+build.${providers.gradleProperty('build_number').get()}" : '')
+group = shared('maven_group')
+base.archivesName = 'immersive-portals-neoforge'
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(25)
+    withSourcesJar()
+}
+
+// ModDev's utility tasks otherwise select their own Java 21 launcher. Use the
+// same supported JDK as game compilation and launches, including asset downloads.
+def toolingLauncher = javaToolchains.launcherFor(java.toolchain)
+tasks.withType(net.neoforged.nfrtgradle.NeoFormRuntimeTask).configureEach {
+    javaExecutable.set(toolingLauncher.map { it.executablePath.asFile.absolutePath })
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.shedaniel.me/' }
+    exclusiveContent {
+        forRepository { maven { name = 'Modrinth'; url = 'https://api.modrinth.com/maven' } }
+        filter { includeGroup 'maven.modrinth' }
+    }
+}
+
+// These are implementations, not compatibility shims. Their NeoForge counterparts
+// are in this module; all portal, renderer, alternate-dimension and worldgen logic is shared.
+def fabricOnly = [
+    'qouteall/imm_ptl/core/platform_specific/FabricModEntry*.java',
+    'qouteall/imm_ptl/core/platform_specific/IPModMenuConfigEntry.java',
+    'qouteall/imm_ptl/core/platform_shared/PlatformHooks.java',
+    'qouteall/imm_ptl/core/platform_shared/ClientPlatformHooks.java',
+    'qouteall/imm_ptl/core/platform_shared/ConfigNetworking.java',
+    'qouteall/imm_ptl/core/platform_shared/ModPlatform.java',
+    'qouteall/imm_ptl/core/mixin/client/render/MixinLevelRenderer_ForceMainThreadRebuild.java',
+    'qouteall/imm_ptl/core/platform_specific/mixin/client/**',
+    'qouteall/imm_ptl/core/compat/mixin/flywheel/**',
+    'qouteall/imm_ptl/core/compat/mixin/cardinal_comp/**',
+    'qouteall/imm_ptl/core/compat/OnGravityChangerPresent.java'
+]
+def commonJava = fileTree('../src/main/java') { fabricOnly.each { exclude it } }
+def preparedJava = layout.buildDirectory.dir('generated/sources/shared/java')
+def prepareSharedSources = tasks.register('prepareSharedSources', Sync) {
+    from(commonJava)
+    into(preparedJava)
+    filteringCharset = 'UTF-8'
+    // Translate side metadata without retaining Fabric references. NeoForge 26.3
+    // does not strip @OnlyIn members: explicit dist-gated entrypoints and guarded
+    // client call sites, not these annotations, provide runtime side separation.
+    filter { String line ->
+        line.replace('import net.fabricmc.api.EnvType;', 'import net.neoforged.api.distmarker.Dist;')
+            .replace('import net.fabricmc.api.Environment;', 'import net.neoforged.api.distmarker.OnlyIn;')
+            .replace('@Environment(EnvType.CLIENT)', '@OnlyIn(Dist.CLIENT)')
+            .replace('@Environment(EnvType.SERVER)', '@OnlyIn(Dist.DEDICATED_SERVER)')
+    }
+}
+
+sourceSets.main.java.srcDir(preparedJava)
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.runtimeClasspath
+sourceSets.main.resources {
+    srcDir('../src/main/resources')
+    exclude('fabric.mod.json', 'imm_ptl.accesswidener', 'imm_ptl_fabric.mixins.json')
+}
+tasks.named('compileJava') { dependsOn(prepareSharedSources) }
+tasks.named('sourcesJar') { dependsOn(prepareSharedSources) }
+
+def compatProfile = providers.gradleProperty('compatProfile').getOrElse('vanilla')
+if (!(compatProfile in ['vanilla', 'sodium', 'iris', 'performance', 'shaders'])) {
+    throw new GradleException("Unknown compatProfile ${compatProfile}")
+}
+def withShaders = providers.gradleProperty('withShaders').isPresent() || providers.gradleProperty('shaderPack').isPresent()
+def useSodium = compatProfile != 'vanilla' || providers.gradleProperty('withSodium').isPresent() || providers.gradleProperty('withIris').isPresent() || withShaders
+def useIris = compatProfile in ['iris', 'shaders'] || providers.gradleProperty('withIris').isPresent() || withShaders
+
+// NeoForge Sodium separates its launcher from the actual mod with jar-in-jar.
+// javac cannot see classes inside nested jars. Extract that exact published inner
+// artifact for compilation only; runtime profiles retain the untouched outer jar.
+configurations { sodiumCompile { transitive = false } }
+def sodiumCompileJar = layout.buildDirectory.file('compat/sodium-mod.jar')
+def extractSodiumCompileJar = tasks.register('extractSodiumCompileJar') {
+    inputs.files(configurations.sodiumCompile)
+    outputs.file(sodiumCompileJar)
+    doLast {
+        new java.util.zip.ZipFile(configurations.sodiumCompile.singleFile).withCloseable { zip ->
+            def candidates = zip.entries().findAll { entry ->
+                entry.name.startsWith('META-INF/jarjar/') && entry.name.endsWith('-mod.jar')
+            }
+            if (candidates.size() != 1) {
+                throw new GradleException('Expected exactly one Sodium native mod jar inside the published artifact')
+            }
+            def target = sodiumCompileJar.get().asFile
+            target.parentFile.mkdirs()
+            zip.getInputStream(candidates.first()).withCloseable { input ->
+                target.withOutputStream { output -> input.transferTo(output) }
+            }
+        }
+    }
+}
+
+neoForge {
+    version = '26.3.0.101'
+    accessTransformers.from(file('src/main/resources/META-INF/accesstransformer.cfg'))
+    runs {
+        client {
+            client()
+            gameDirectory = file(providers.gradleProperty('ipRunDir').getOrElse('build/run-client'))
+            programArgument('--graphicsBackend')
+            programArgument(providers.gradleProperty('ipBackend').getOrElse('opengl'))
+        }
+        server {
+            server()
+            gameDirectory = file(providers.gradleProperty('ipRunDir').getOrElse('build/run-server'))
+            programArgument('--nogui')
+        }
+        configureEach {
+            jvmArgument('-XX:ActiveProcessorCount=2')
+            project.properties.each { key, value ->
+                if (key.toString().startsWith('imm_ptl.')) { systemProperty(key.toString(), value.toString()) }
+            }
+        }
+    }
+    mods { immersive_portals { sourceSet(sourceSets.main) } }
+}
+
+dependencies {
+    implementation "qouteall.dimlib:dimlib-neoforge:${shared('dimlib_version')}"
+    jarJar "qouteall.dimlib:dimlib-neoforge:[${shared('dimlib_version')}]"
+    implementation("me.shedaniel.cloth:cloth-config-neoforge:${shared('cloth_config_version')}")
+    jarJar("me.shedaniel.cloth:cloth-config-neoforge:[${shared('cloth_config_version')}]")
+    compileOnly 'org.jetbrains:annotations:26.0.2'
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    sodiumCompile "maven.modrinth:sodium:${shared('sodium_neoforge_version')}"
+    compileOnly files(sodiumCompileJar).builtBy(extractSodiumCompileJar)
+    compileOnly "maven.modrinth:iris:${shared('iris_neoforge_version')}"
+    if (useSodium) {
+        def sodiumRuntimeVersion = useIris ? shared('sodium_iris_neoforge_version') : shared('sodium_neoforge_version')
+        runtimeOnly "maven.modrinth:sodium:${sodiumRuntimeVersion}"
+    }
+    if (useIris) { runtimeOnly "maven.modrinth:iris:${shared('iris_neoforge_version')}" }
+    if (compatProfile in ['performance', 'shaders']) {
+        runtimeOnly "maven.modrinth:lithium:${shared('lithium_neoforge_version')}"
+        runtimeOnly "maven.modrinth:ferrite-core:${shared('ferritecore_neoforge_version')}"
+        runtimeOnly "maven.modrinth:entityculling:${shared('entityculling_neoforge_version')}"
+        runtimeOnly "maven.modrinth:immediatelyfast:${shared('immediatelyfast_neoforge_version')}"
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xmaxerrs', '10000']
+}
+tasks.named('processResources') {
+    inputs.property('version', project.version)
+    filesMatching('META-INF/neoforge.mods.toml') { expand(version: project.version) }
+}
+tasks.named('jar') {
+    archiveFileName = "immersive-portals-${project.version}-mc26.3-neoforge.jar"
+    from('../LICENSE') { rename { 'LICENSE_immersive-portals' } }
+    from('../NOTICE') { rename { 'NOTICE_immersive-portals' } }
+}
+tasks.named('sourcesJar') {
+    from('../LICENSE') { rename { 'LICENSE_immersive-portals' } }
+    from('../NOTICE') { rename { 'NOTICE_immersive-portals' } }
+}
+
+def verifyLoaderIsolation = tasks.register('verifyLoaderIsolation') {
+    dependsOn(tasks.named('jar'))
+    inputs.file(tasks.named('jar', Jar).flatMap { it.archiveFile })
+    doLast {
+        new java.util.zip.ZipFile(tasks.named('jar', Jar).get().archiveFile.get().asFile).withCloseable { zip ->
+            assert zip.getEntry('fabric.mod.json') == null : 'Fabric metadata in native artifact'
+            ['META-INF/neoforge.mods.toml', 'META-INF/accesstransformer.cfg',
+             'imm_ptl_neoforge.mixins.json', 'LICENSE_immersive-portals', 'NOTICE_immersive-portals'].each { path ->
+                assert zip.getEntry(path) != null : "Native artifact is missing ${path}"
+            }
+            def jarJarMetadata = zip.getEntry('META-INF/jarjar/metadata.json')
+            assert jarJarMetadata != null : 'Native bundled dependencies are missing'
+            def bundled = new groovy.json.JsonSlurper().parse(zip.getInputStream(jarJarMetadata))
+            assert bundled.jars.any { dependency ->
+                dependency.identifier.group == 'qouteall.dimlib' && dependency.identifier.artifact == 'dimlib-neoforge'
+            } : 'The native DimLib artifact must be bundled, not the Fabric artifact'
+            assert bundled.jars.any { dependency ->
+                dependency.identifier.group == 'me.shedaniel.cloth' && dependency.identifier.artifact == 'cloth-config-neoforge'
+            } : 'The native Cloth Config artifact must be bundled'
+            zip.entries().each { entry ->
+                if (entry.name.endsWith('.class')) {
+                    def constants = new String(zip.getInputStream(entry).bytes, java.nio.charset.StandardCharsets.ISO_8859_1)
+                    assert !constants.contains('net/fabricmc/') : "${entry.name} references Fabric"
+                    assert !constants.contains('com/terraformersmc/') : "${entry.name} references Mod Menu"
+                }
+            }
+        }
+    }
+}
+tasks.named('check') { dependsOn(verifyLoaderIsolation) }
+tasks.named('test') { useJUnitPlatform() }

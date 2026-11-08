@@ -1,0 +1,22 @@
+modLoader="javafml"
+loaderVersion="[12,)"
+license="Apache-2.0"
+
+[[mods]]
+modId="ip_native_recovery_test"
+version="1.0"
+displayName="Native Recovery Regression Harness (development only)"
+
+[[dependencies.ip_native_recovery_test]]
+modId="neoforge"
+type="required"
+versionRange="[26.3.0.101]"
+ordering="AFTER"
+side="SERVER"
+
+[[dependencies.ip_native_recovery_test]]
+modId="immersive_portals"
+type="required"
+versionRange="[7.0.1-dev]"
+ordering="AFTER"
+side="SERVER"

@@ -3,7 +3,7 @@ package qouteall.imm_ptl.core;
 import com.mojang.logging.LogUtils;
 import me.shedaniel.autoconfig.AutoConfig;
 import me.shedaniel.autoconfig.serializer.GsonConfigSerializer;
-import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import qouteall.imm_ptl.core.platform_shared.PlatformHooks;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.EntityType;
@@ -60,6 +60,7 @@ public class IPModMain {
     private static final Logger LOGGER = LogUtils.getLogger();
     
     public static void init() {
+        PlatformHooks.init();
         loadConfig();
         
         Helper.LOGGER.info("Immersive Portals Mod Initializing");
@@ -100,9 +101,7 @@ public class IPModMain {
         
         BlockManipulationServer.init();
         
-        CommandRegistrationCallback.EVENT.register(
-            (dispatcher, ctx, environment) -> PortalCommand.register(dispatcher, ctx)
-        );
+        PlatformHooks.registerCommands();
         SubCommandArgumentType.init();
         TimingFunctionArgumentType.init();
         AxisArgumentType.init();

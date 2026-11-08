@@ -1,6 +1,6 @@
 package qouteall.imm_ptl.core.chunk_loading;
 
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import qouteall.imm_ptl.core.platform_shared.ServerTickEvents;
 import net.minecraft.server.MinecraftServer;
 import qouteall.imm_ptl.core.IPGlobal;
 import qouteall.q_misc_util.Helper;

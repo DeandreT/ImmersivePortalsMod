@@ -1,6 +1,8 @@
 package qouteall.imm_ptl.core;
 
-import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import qouteall.imm_ptl.core.platform_shared.ClientPlatformHooks;
+import qouteall.imm_ptl.core.portal.global_portals.GlobalPortalStorageClient;
+import qouteall.imm_ptl.core.collision.CollisionHelperClient;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
@@ -65,6 +67,8 @@ public class IPModMainClient {
     }
     
     public static void init() {
+        ClientPlatformHooks.init();
+        GlobalPortalStorageClient.init();
         // Dev tool: -Dimm_ptl.mixinAudit=true loads all mixin targets (reporting failed mixins), then exits.
         if (Boolean.getBoolean("imm_ptl.mixinAudit")) {
             Minecraft.getInstance().execute(() -> {
@@ -94,7 +98,7 @@ public class IPModMainClient {
         CrossPortalEntityRenderer.init();
         
         
-        CollisionHelper.initClient();
+        CollisionHelperClient.init();
         
         PortalRenderInfo.init();
         
@@ -102,9 +106,7 @@ public class IPModMainClient {
         
         GcMonitor.initClient();
         
-        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
-            ClientDebugCommand.register(dispatcher);
-        });
+        ClientPlatformHooks.registerCommands();
         
 //        showIntelVideoCardWarning();
         

@@ -1,6 +1,5 @@
 package qouteall.dimlib.mixin.common;
 
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.network.Connection;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.CommonListenerCookie;
@@ -10,6 +9,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import qouteall.dimlib.DimLibNetworking;
+import qouteall.dimlib.platform.DimLibPlatform;
 
 @Mixin(PlayerList.class)
 public class MixinPlayerList {
@@ -27,10 +27,10 @@ public class MixinPlayerList {
         CommonListenerCookie commonListenerCookie,
         CallbackInfo ci
     ) {
-        player.connection.send(
-            ServerPlayNetworking.createClientboundPacket(
-                DimLibNetworking.DimSyncPacket.createPacket(player.level().getServer())
-            )
-        );
+        if (DimLibPlatform.canSendDimensionSync(player)) {
+            player.connection.send(
+                DimLibNetworking.createClientboundPacket(player.level().getServer())
+            );
+        }
     }
 }

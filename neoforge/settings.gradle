@@ -1,0 +1,14 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven { url = 'https://maven.neoforged.net/releases' }
+    }
+}
+
+rootProject.name = 'immersive-portals-neoforge'
+
+includeBuild('../dimlib/neoforge') {
+    dependencySubstitution {
+        substitute module('qouteall.dimlib:dimlib-neoforge') using project(':')
+    }
+}

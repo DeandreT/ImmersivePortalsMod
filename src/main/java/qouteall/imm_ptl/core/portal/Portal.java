@@ -3,8 +3,9 @@ package qouteall.imm_ptl.core.portal;
 import com.mojang.logging.LogUtils;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.event.Event;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import qouteall.imm_ptl.core.platform_shared.Event;
+import qouteall.imm_ptl.core.platform_shared.PlayNetworking;
+import qouteall.imm_ptl.core.platform_shared.PlatformHooks;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Util;
@@ -117,7 +118,7 @@ public class Portal extends Entity implements
         Identifier id,
         EntityType.EntityFactory<T> constructor
     ) {
-        return EntityType.Builder.of(
+        return PlatformHooks.withVelocityUpdates(EntityType.Builder.of(
                 constructor,
                 MobCategory.MISC
             )
@@ -126,8 +127,7 @@ public class Portal extends Entity implements
             .eyeHeight(0)
             .fireImmune()
             .clientTrackingRange(96 / 16) // 96 blocks
-            .updateInterval(20)
-            .alwaysUpdateVelocity(true)
+            .updateInterval(20))
             .build(ResourceKey.create(Registries.ENTITY_TYPE, id));
     }
     
@@ -975,7 +975,7 @@ public class Portal extends Entity implements
         
         // the listener generic parameter is contravariant. this is fine
         return (Packet<ClientGamePacketListener>) (Packet)
-            ServerPlayNetworking.createClientboundPacket(new ImmPtlNetworking.PortalSyncPacket(
+            PlayNetworking.createClientboundPacket(new ImmPtlNetworking.PortalSyncPacket(
                 getId(), getUUID(), getType(),
                 PortalAPI.serverDimKeyToInt(level().getServer(), getOriginDim()),
                 getX(), getY(), getZ(),

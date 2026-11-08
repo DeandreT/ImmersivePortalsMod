@@ -2,7 +2,7 @@ package qouteall.imm_ptl.core;
 
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.fabricmc.fabric.api.event.Event;
+import qouteall.imm_ptl.core.platform_shared.Event;
 import qouteall.q_misc_util.Helper;
 
 @Environment(EnvType.CLIENT)

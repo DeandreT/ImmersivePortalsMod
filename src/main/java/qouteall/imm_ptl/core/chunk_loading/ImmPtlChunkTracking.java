@@ -6,7 +6,8 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import qouteall.imm_ptl.core.platform_shared.ServerTickEvents;
+import qouteall.imm_ptl.core.platform_shared.PlatformHooks;
 import net.minecraft.network.protocol.game.ClientboundForgetLevelChunkPacket;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
@@ -250,17 +251,19 @@ public class ImmPtlChunkTracking {
                 
                 dimChunkWatchRecords.entrySet().removeIf(e -> {
                     ServerPlayer player = e.getKey();
+                    PlayerWatchRecord record = e.getValue();
                     
                     if (player.isRemoved()) {
+                        notifyChunkUnwatch(record);
                         return true;
                     }
                     
-                    PlayerWatchRecord record = e.getValue();
                     int delayUnloadGenerations = getDelayUnloadGenerationForPlayer(player);
                     boolean shouldRemove = generationCounter - record.lastWatchGeneration > delayUnloadGenerations;
                     
                     if (shouldRemove) {
                         if (record.isLoadedToPlayer) {
+                            notifyChunkUnwatch(record);
                             player.connection.send(
                                 PacketRedirection.createRedirectedMessage(
                                     player.level().getServer(),
@@ -498,6 +501,16 @@ public class ImmPtlChunkTracking {
         return getDimChunkWatchRecords(dimension).get(ChunkPos.pack(x, z));
     }
     
+    private static void notifyChunkUnwatch(PlayerWatchRecord record) {
+        if (!record.isValid || !record.isLoadedToPlayer) {
+            return;
+        }
+        ServerLevel world = record.player.level().getServer().getLevel(record.dimension);
+        if (world != null) {
+            PlatformHooks.onChunkUnwatch(record.player, world, ChunkPos.unpack(record.chunkPos));
+        }
+    }
+
     public static void forceRemovePlayer(ServerPlayer oldPlayer) {
         playerInfoMap.remove(oldPlayer);
         
@@ -507,6 +520,7 @@ public class ImmPtlChunkTracking {
                 Object2ObjectOpenHashMap<ServerPlayer, PlayerWatchRecord> records = e.getValue();
                 PlayerWatchRecord rec = records.remove(oldPlayer);
                 if (rec != null) {
+                    notifyChunkUnwatch(rec);
                     PacketRedirection.sendRedirectedMessage(
                         oldPlayer, dim, new ClientboundForgetLevelChunkPacket(ChunkPos.unpack(chunkPos))
                     );
@@ -535,6 +549,7 @@ public class ImmPtlChunkTracking {
             );
             for (PlayerWatchRecord record : records.values()) {
                 if (record.isValid && record.isLoadedToPlayer) {
+                    PlatformHooks.onChunkUnwatch(record.player, world, ChunkPos.unpack(record.chunkPos));
                     record.player.connection.send(unloadPacket);
                 }
                 record.isValid = false;
