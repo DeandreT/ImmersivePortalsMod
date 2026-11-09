@@ -11,5 +11,8 @@ public final class Evidence {
     public static final AtomicInteger PORTAL_SYNC = new AtomicInteger();
     public static final AtomicInteger SERVER_TELEPORT_REQUESTS = new AtomicInteger();
     public static final ConcurrentLinkedQueue<String> PREDICTIONS = new ConcurrentLinkedQueue<>();
+    public static final AtomicInteger REALM_SKY_EXTRACTIONS = new AtomicInteger();
+    public static final AtomicInteger REALM_TWO_SUN_DRAWS = new AtomicInteger();
+    public static volatile String expectedRealm;
     private Evidence() {}
 }

@@ -7,6 +7,13 @@ pluginManagement {
 
 rootProject.name = 'immersive-portals-neoforge'
 
+includeBuild('iris-bootstrap') {
+    name = 'riftwoven-iris-bootstrap'
+    dependencySubstitution {
+        substitute module('qouteall:riftwoven-iris-bootstrap') using project(':')
+    }
+}
+
 includeBuild('../dimlib/neoforge') {
     dependencySubstitution {
         substitute module('qouteall.dimlib:dimlib-neoforge') using project(':')

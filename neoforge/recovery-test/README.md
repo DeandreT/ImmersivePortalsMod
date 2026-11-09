@@ -27,9 +27,11 @@ JAVA_TOOL_OPTIONS='-XX:ActiveProcessorCount=2 -Djava.awt.headless=true' \
 
 The equivalent explicit launcher is `python3 neoforge/recovery-test/test_server.py --accept-eula`.
 Its `--timeout` bounds the whole inner build/server process (900 seconds by default).
-`--artifact` selects a packaged native parent jar; its metadata must identify version `7.0.1-dev`.
+`--artifact` selects a packaged native parent jar; its metadata must identify version `7.1.0-dev`.
 There is no automatic source substitution or parent build. Stale production inputs or a stale
-bundled DimLib jar are rejected before launch.
+bundled DimLib or early-Iris-bootstrap jar are rejected before launch. The early
+processor remains a separate FML `LIBRARY`, not a normal mod entrypoint; the
+validator requires its exact current bytes, manifest and service declaration.
 
 The launcher owns a fresh `/tmp/opencode/ip-native-recovery-world-*` directory, binds only to
 loopback with an unused port, disables RCON/query, and requires a whitelist. It never connects to

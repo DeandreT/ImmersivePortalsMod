@@ -46,7 +46,7 @@ import java.util.concurrent.TimeUnit;
 final class NativeClientSmoke {
     private static final Logger LOGGER = LogUtils.getLogger();
     private enum Stage { TITLE, JOIN, SETUP, PREVIEW, VIEW_CAPTURE, TO_NETHER, NETHER_CAPTURE,
-        AWAY, TO_OVERWORLD, REBUILD, RETURN_CAPTURE, DONE }
+        AWAY, TO_OVERWORLD, REBUILD, RETURN_CAPTURE, REALM, DONE }
     private final Map<String, Object> report = new LinkedHashMap<>();
     private final List<Map<String, Object>> landings = new ArrayList<>();
     private Stage stage = Stage.TITLE;
@@ -60,10 +60,13 @@ final class NativeClientSmoke {
     private ServerState serverState;
     private String captureName;
     private CompletableFuture<Void> capture;
+    private NativeRealmSmoke realm;
 
     NativeClientSmoke() {
         NeoForge.EVENT_BUS.addListener(this::tick);
         NeoForge.EVENT_BUS.addListener(this::render);
+        NeoForge.EVENT_BUS.addListener((RenderFrameEvent.Pre event) -> RealmTerrainDiagnostics.beginFrame());
+        NeoForge.EVENT_BUS.addListener((RenderFrameEvent.Pre event) -> BaselineMarkerDiagnostics.beginFrame());
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingIn event) -> {
             loginEvents++;
             localConnection = event.getConnection().isMemoryConnection();
@@ -77,7 +80,7 @@ final class NativeClientSmoke {
         try {
             ticks++;
             stageTicks++;
-            long stageLimit = stage == Stage.AWAY ? awayTicks / 20 + 120L : 180L;
+            long stageLimit = stage == Stage.REALM ? awayTicks / 20 + 480L : stage == Stage.AWAY ? awayTicks / 20 + 120L : 180L;
             ArtifactProof.require(System.nanoTime() - stageStarted < TimeUnit.SECONDS.toNanos(stageLimit), "Stage timed out: " + stage);
             if (client.getSingleplayerServer() != null && client.player != null) { sampleServer(client); }
             switch (stage) {
@@ -101,7 +104,7 @@ final class NativeClientSmoke {
                     initialize(client);
                     move(Stage.JOIN);
                     client.createWorldOpenFlows().createFreshLevel("native-smoke",
-                        new LevelSettings("Owned native real-client smoke", GameType.CREATIVE,
+                        new LevelSettings("Owned native real-client smoke", realmRequested() ? GameType.SURVIVAL : GameType.CREATIVE,
                             new LevelSettings.DifficultySettings(Difficulty.PEACEFUL, false, true), true, WorldDataConfiguration.DEFAULT),
                         new WorldOptions(0L, false, false),
                         registries -> registries.lookupOrThrow(Registries.WORLD_PRESET).getOrThrow(WorldPresets.FLAT).value().createWorldDimensions(),
@@ -120,13 +123,19 @@ final class NativeClientSmoke {
                     ArtifactProof.require(!IPGlobal.disableTeleportation, "Portal teleportation is disabled");
                     if (!client.gui.hud.isHidden()) { client.gui.hud.toggle(); }
                     client.options.bobView().set(false);
-                    action = client.getSingleplayerServer().submit(() -> Scene.prepare(client.getSingleplayerServer()));
+                    if (realmRequested()) {
+                        realm = new NativeRealmSmoke(this, report, landings, awayTicks);
+                        action = realm.prepare(client);
+                    } else {
+                        BaselineMarkerDiagnostics.start(output);
+                        action = client.getSingleplayerServer().submit(() -> Scene.prepare(client.getSingleplayerServer()));
+                    }
                     move(Stage.SETUP);
                 }
                 case SETUP -> {
                     if (!action.isDone()) { return; }
                     action.join();
-                    move(Stage.PREVIEW);
+                    move(realm == null ? Stage.PREVIEW : Stage.REALM);
                 }
                 case PREVIEW -> {
                     if (settled(client, Level.OVERWORLD, -20) && stageTicks > 200 && frames > 30) {
@@ -196,7 +205,11 @@ final class NativeClientSmoke {
                     ArtifactProof.require(!Boolean.parseBoolean(ArtifactProof.property("shaderPackExpected")) || shader,
                         "The requested shader pack is not actually active");
                     report.put("shader_pack_active", shader);
+                    checkpointBeforeMixinAudit();
                     finish(client, null);
+                }
+                case REALM -> {
+                    if (realm.tick(client, serverState, frames)) { finish(client, null); }
                 }
                 default -> { }
             }
@@ -222,6 +235,7 @@ final class NativeClientSmoke {
         report.put("artifacts", ArtifactProof.verify(output));
         report.put("physical_side", "CLIENT");
         report.put("profile", ArtifactProof.property("profile"));
+        if (realmRequested()) { report.put("scenario", "riftwoven_realm"); }
         report.put("coverage", "one real client + integrated server, native FML and actual local in-memory transport; not a remote or two-player test");
         LOGGER.info("IP_NATIVE_CLIENT_BEGIN actual_packaged_parent=true physical_side=CLIENT");
     }
@@ -261,17 +275,25 @@ final class NativeClientSmoke {
         LOGGER.info("IP_NATIVE_CLIENT_STAGE {} -> {}", stage, next);
         stage = next; stageTicks = 0; stable = 0; stageStarted = System.nanoTime();
     }
-    private void screenshot(String name) {
+    CompletableFuture<Void> screenshot(String name) {
         capture = new CompletableFuture<>();
         captureName = name;
+        return capture;
     }
     private void render(RenderFrameEvent.Post event) {
         frames++;
         if (captureName == null || stage == Stage.DONE) { return; }
+        if (captureName.equals("realm-terrain.png") || captureName.equals("realm-terrain-replay.png")) {
+            // Recheck the actual frame, not an earlier tick's mesh/queue state. Never rebuild
+            // terrain or change render options to satisfy the photographic fixture.
+            if (!RealmTerrainDiagnostics.photoReadyThisFrame()) { return; }
+            RealmTerrainDiagnostics.freezePhoto();
+        }
         String name = captureName;
         captureName = null;
         var future = capture;
         try {
+            if (name.equals("portal-view.png")) { BaselineMarkerDiagnostics.freezeAndWrite(); }
             Screenshot.takeScreenshot(Minecraft.getInstance().gameRenderer.mainRenderTarget(), image -> {
                 try (image) {
                     ArtifactProof.require(image.getWidth() >= 640 && image.getHeight() >= 400, "Invalid actual framebuffer size");
@@ -285,7 +307,35 @@ final class NativeClientSmoke {
         catch (Throwable failure) { future.completeExceptionally(failure); }
     }
 
+    void checkpointBeforeMixinAudit() {
+        var checkpoint = new LinkedHashMap<String, Object>(report);
+        checkpoint.put("status", "PARTIAL_DIAGNOSTIC");
+        checkpoint.put("checkpoint", "BEFORE_MIXIN_AUDIT");
+        checkpoint.put("audit_scheduled", realm != null);
+        checkpoint.put("checkpoint_scope", realm == null
+            ? "Actual loaded method/config evidence before baseline finish; baseline does not invoke audit"
+            : "Partial realm evidence before the existing required audit; not a final runtime result");
+        checkpoint.put("landings", landings.stream().map(LinkedHashMap::new).toList());
+        checkpoint.put("rendered_frames", frames);
+        checkpoint.put("login_events", loginEvents);
+        checkpoint.put("actual_local_connection", localConnection);
+        checkpoint.put("config_start", Evidence.CONFIG_START.get());
+        checkpoint.put("config_complete", Evidence.CONFIG_COMPLETE.get());
+        checkpoint.put("dimension_sync", Evidence.DIMENSION_SYNC.get());
+        checkpoint.put("portal_sync", Evidence.PORTAL_SYNC.get());
+        checkpoint.put("server_teleport_requests", Evidence.SERVER_TELEPORT_REQUESTS.get());
+        checkpoint.put("prediction_dimensions", List.copyOf(Evidence.PREDICTIONS));
+        checkpoint.put("mixin_audit_evidence", MixinAuditEvidence.sample());
+        try {
+            AtomicDiagnosticWriter.write(output.resolve(realm == null ? "baseline-pre-audit-diagnostics.json"
+                : "realm-pre-audit-diagnostics.json"), new GsonBuilder().setPrettyPrinting().create().toJson(checkpoint));
+        } catch (java.io.IOException failure) {
+            throw new java.io.UncheckedIOException("Cannot publish pre-audit diagnostic", failure);
+        }
+    }
+
     private void finish(Minecraft client, Throwable failure) {
+        if (realm != null) { realm.releaseInput(client); }
         stage = Stage.DONE;
         report.put("status", failure == null ? "RUNTIME_PASS" : "FAIL");
         report.put("landings", landings);
@@ -303,6 +353,7 @@ final class NativeClientSmoke {
             LOGGER.error("IP_NATIVE_CLIENT_FAIL", failure);
         }
         try {
+            if (realm == null) { BaselineMarkerDiagnostics.terminal(failure); }
             if (output == null) { output = Path.of(ArtifactProof.property("clientReportDir")); }
             Files.writeString(output.resolve("runtime-results.json"), new GsonBuilder().setPrettyPrinting().create().toJson(report));
         }
@@ -310,5 +361,6 @@ final class NativeClientSmoke {
         LOGGER.info("IP_NATIVE_CLIENT_DONE status={}", report.get("status"));
         client.stop();
     }
-    private record ServerState(String dimension, double x, double y, double z, boolean awaiting, boolean registered) {}
+    private static boolean realmRequested() { return Boolean.parseBoolean(ArtifactProof.property("realm")); }
+    record ServerState(String dimension, double x, double y, double z, boolean awaiting, boolean registered) {}
 }

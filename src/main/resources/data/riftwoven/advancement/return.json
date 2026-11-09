@@ -1,0 +1,1 @@
+{"parent":"riftwoven:awaken","display":{"icon":{"id":"minecraft:compass"},"title":{"translate":"riftwoven.advancement.return.title"},"description":{"translate":"riftwoven.advancement.return.description"},"show_toast":true,"announce_to_chat":false},"criteria":{"return":{"trigger":"minecraft:impossible"}}}

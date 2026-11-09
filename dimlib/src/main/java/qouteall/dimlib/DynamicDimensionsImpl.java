@@ -67,7 +67,8 @@ public class DynamicDimensionsImpl {
         WorldData worldData = server.getWorldData();
         ServerLevelData serverLevelData = worldData.overworldData();
         
-        long seed = server.getWorldGenSettings().options().seed();
+        long seed = levelStem.generator() instanceof qouteall.dimlib.api.IndependentDimensionSeed independent
+            ? independent.dimensionSeed() : server.getWorldGenSettings().options().seed();
         long obfuscatedSeed = BiomeManager.obfuscateSeed(seed);
         
         DerivedLevelData derivedLevelData = new DerivedLevelData(

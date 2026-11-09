@@ -27,6 +27,7 @@ import qouteall.imm_ptl.core.chunk_loading.ImmPtlChunkTracking;
 import qouteall.imm_ptl.core.network.PacketRedirection;
 import qouteall.imm_ptl.core.portal.global_portals.GlobalPortalStorage;
 import qouteall.imm_ptl.core.teleportation.ServerTeleportationManager;
+import qouteall.imm_ptl.peripheral.riftwoven.environment.RealmEnvironment;
 import qouteall.q_misc_util.Helper;
 
 import java.util.List;
@@ -42,6 +43,13 @@ public class MixinPlayerList {
     @Final
     private MinecraftServer server;
     
+    @Inject(method = "Lnet/minecraft/server/players/PlayerList;sendLevelInfo(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/server/level/ServerLevel;)V", at = @At("HEAD"))
+    private void riftwoven$sendBiomeSeeds(ServerPlayer player, ServerLevel world, CallbackInfo ci) {
+        // Login/respawn has already created the vanilla client level. Publish remote-world
+        // seeds before the RETURN hook can synchronize portals and create remote levels.
+        RealmEnvironment.sendBiomeSeeds(player);
+    }
+
     @Inject(method = "Lnet/minecraft/server/players/PlayerList;sendLevelInfo(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/server/level/ServerLevel;)V", at = @At("RETURN"))
     private void onSendWorldInfo(ServerPlayer player, ServerLevel world, CallbackInfo ci) {
         if (!ServerTeleportationManager.of(player.level().getServer()).isFiringMyChangeDimensionEvent) {

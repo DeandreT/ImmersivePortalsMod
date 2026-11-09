@@ -5,6 +5,10 @@ the portal and renderer implementation directly from `../src/main/java`; it
 does not load a Fabric jar or use a compatibility loader. DimLib's native
 module is included as a composite build. Both DimLib and Cloth Config's native
 artifacts are bundled using NeoForge jar-in-jar metadata.
+The separate [early Iris processor library](iris-bootstrap/README.md) is bundled
+as an FML `LIBRARY` and is also a runtime-only dependency for source-set launches.
+JarJar packaging alone does not put that early service on ModDev's development
+runtime classpath. Keep the library separate from ordinary mod classes.
 NeoForm utility tasks, including asset downloads, use the same Java 25 toolchain
 as compilation and game launches; a separate Java 21 installation is not required.
 

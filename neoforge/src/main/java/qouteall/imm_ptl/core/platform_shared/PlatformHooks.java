@@ -110,8 +110,10 @@ public final class PlatformHooks {
     }
 
     public static void registerCommands() {
-        NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) ->
-            PortalCommand.register(event.getDispatcher(), event.getBuildContext()));
+        NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) -> {
+            PortalCommand.register(event.getDispatcher(), event.getBuildContext());
+            qouteall.imm_ptl.peripheral.riftwoven.RealmCommands.register(event.getDispatcher());
+        });
     }
 
     public static <A extends ArgumentType<?>, T extends ArgumentTypeInfo.Template<A>> void registerArgumentType(

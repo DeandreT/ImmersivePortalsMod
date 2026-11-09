@@ -1,10 +1,21 @@
-# Immersive Portals — Minecraft 26.3
+# Riftwoven — Minecraft 26.3
+
+**Shape the seed. Discover the world.**
 
 See through portals and cross them without a loading screen. This development fork targets **Fabric and native NeoForge**, sharing portal, rendering, networking and dimension logic. NeoForge does not load a Fabric jar or require a compatibility loader.
 
-The starting point is [Immersive Portals Revived](https://github.com/riyadmondol2006/Immersive-portals-mod-Revived-), incorporating the [ImmersivelyVibedPortals 26.3 port](https://github.com/nyannoying1337/ImmersivelyVibedPortals/tree/port/26.3). The [original project](https://github.com/iPortalTeam/ImmersivePortalsMod) is archived. Preserve the attribution in [NOTICE](NOTICE) and [DimLib's NOTICE](dimlib/NOTICE).
+Riftwoven is a development fork of Immersive Portals, hosted at [DeandreT/Riftwoven](https://github.com/DeandreT/Riftwoven). Its starting point is [Immersive Portals Revived](https://github.com/riyadmondol2006/Immersive-portals-mod-Revived-), incorporating the [ImmersivelyVibedPortals 26.3 port](https://github.com/nyannoying1337/ImmersivelyVibedPortals/tree/port/26.3). The [original project](https://github.com/iPortalTeam/ImmersivePortalsMod) is archived. Preserve the attribution in [NOTICE](NOTICE) and [DimLib's NOTICE](dimlib/NOTICE).
+
+Realm Seeds add persistent, finite worlds shaped by physical offerings. See the [Realm Seeds guide](docs/Riftwoven.md) for supported materials, creation, permissions, return controls and the initial generation vocabulary. The Riftwoven name changes presentation and artifact names only: existing mod and registry IDs, configuration filenames, Java packages, serialized identifiers and public APIs intentionally retain their Immersive Portals names for compatibility. Do not install Riftwoven alongside another build with the same `immersive_portals` mod ID.
 
 > Back up worlds before installing a development build. Use the same loader and mod build on the server and every client. A successful build is not proof that every mod combination or shader pack works.
+
+## Download
+
+Get the [7.1.0-dev prerelease for Minecraft 26.3](https://github.com/DeandreT/Riftwoven/releases/tag/v7.1.0-dev-mc26.3).
+Choose the Fabric or NeoForge jar for your loader; do not install both. Java 25 is
+required. Fabric also needs Fabric API; matching DimLib and Cloth Config are bundled.
+See the [Realm Seeds guide](docs/Riftwoven.md) before awakening your first realm.
 
 ## Runtime targets
 
@@ -16,6 +27,10 @@ Both loaders use Minecraft **26.3** and **Java 25**.
 | NeoForge | 26.3.0.101 | No Fabric dependencies |
 
 Matching-loader DimLib and Cloth Config are bundled. Performance mods are optional and are **not** bundled.
+
+NeoForge also bundles a small [early Iris bootstrap library](neoforge/iris-bootstrap/README.md).
+It uses FML's supported initial-load processor to prevent premature world-interface
+verification before Mixin preparation; published Iris/Sodium jars and dependency checks stay unchanged.
 
 Build a normal obsidian portal frame, light it, and walk through. The mod also provides End portals, mirrors, rotated/scaled portals, world wrapping, dimension stacks, custom portal generation and administrative tools. Some tools are accessed through commands rather than the creative inventory; mirror creation is controlled by `enableMirrorCreation`.
 
@@ -31,8 +46,8 @@ Use `gradlew.bat` on Windows. The wrapper uses Gradle 9.8.2; no system Gradle is
 
 Runtime artifacts:
 
-- Fabric: `build/libs/immersive-portals-7.0.1-dev-mc26.3-fabric.jar`
-- NeoForge: `neoforge/build/libs/immersive-portals-7.0.1-dev-mc26.3-neoforge.jar`
+- Fabric: `build/libs/riftwoven-7.1.0-dev-mc26.3-fabric.jar`
+- NeoForge: `neoforge/build/libs/riftwoven-7.1.0-dev-mc26.3-neoforge.jar`
 
 `build` and `test` select the root Fabric project; `buildAll` and `testAll` include the native composite. See [native loader development](neoforge/README.md) and [bundled DimLib](dimlib/README.md) for separate builds and dimension persistence checks.
 
@@ -76,6 +91,11 @@ Fabric's client gametest suite includes feature, rendering, teleport validation,
 sh ./gradlew compileGametestJava
 sh ./gradlew runClientGameTest -PcompatProfile=performance
 ```
+
+Add `-Pimm_ptl.realmTest=true` for the Realm Seeds TCP ritual, crossing, reconnect,
+return and saved-world checks. Add `-Pimm_ptl.realmTest.only=true` to select only
+that fixture; this deliberately skips the ordinary portal regressions. Its
+`shaders` profile requires the requested shader pack to be actively rendering.
 
 Run visual tests only on an **owned private display**, never an existing desktop display. Isolate the runtime directory and remove inherited Wayland/session variables. On software-rendered Linux, use `SDL_VIDEO_FORCE_EGL=1`, `LIBGL_ALWAYS_SOFTWARE=1` and `SDL_VIDEODRIVER=x11`. Set `-Djava.awt.headless=true` for test JVMs so a failed test cannot hang on a Java crash dialog; Minecraft's SDL window still uses the private display. Bound test-process lifetimes and retain failure logs.
 

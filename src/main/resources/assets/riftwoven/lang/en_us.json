@@ -1,0 +1,13 @@
+{
+  "block.riftwoven.realm_seed":"Realm Seed",
+  "item.riftwoven.realm_seed":"Realm Seed",
+  "entity.riftwoven.realm_portal":"Realm Rift",
+  "riftwoven.seed.tooltip":"Plant in a stone, crying-obsidian and amethyst formation. Materials shape a finite world.",
+  "riftwoven.seed.reference":"A persistent realm reference. Copies share the same world and discoveries.",
+  "riftwoven.advancement.plant.title":"Shape the seed",
+  "riftwoven.advancement.plant.description":"Craft a Realm Seed. Place it on five stone blocks between three-high crying-obsidian uprights capped with amethyst.",
+  "riftwoven.advancement.awaken.title":"Discover the world",
+  "riftwoven.advancement.awaken.description":"Offer materials, inspect the profile, then sneak and hold use with four diamonds to awaken your finite realm.",
+  "riftwoven.advancement.return.title":"A thread home",
+  "riftwoven.advancement.return.description":"The arrival core returns you home. For emergency extraction, empty both hands, look up, sneak and hold use for thirty seconds."
+}

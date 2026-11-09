@@ -41,8 +41,10 @@ public final class PlatformHooks {
     }
 
     public static void registerCommands() {
-        CommandRegistrationCallback.EVENT.register((dispatcher, context, environment) ->
-            PortalCommand.register(dispatcher, context));
+        CommandRegistrationCallback.EVENT.register((dispatcher, context, environment) -> {
+            PortalCommand.register(dispatcher, context);
+            qouteall.imm_ptl.peripheral.riftwoven.RealmCommands.register(dispatcher);
+        });
     }
 
     public static <A extends ArgumentType<?>, T extends ArgumentTypeInfo.Template<A>> void registerArgumentType(

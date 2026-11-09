@@ -44,6 +44,7 @@ import qouteall.imm_ptl.core.render.context_management.DimensionRenderHelper;
 import qouteall.imm_ptl.core.render.context_management.PortalRendering;
 import qouteall.q_misc_util.Helper;
 import qouteall.q_misc_util.my_util.CountDownInt;
+import qouteall.imm_ptl.peripheral.riftwoven.environment.client.RealmBiomeSeeds;
 
 import java.util.Collection;
 import java.util.List;
@@ -87,6 +88,7 @@ public class ClientWorldLoader {
     
     public static void init() {
         DimensionAPI.CLIENT_DIMENSION_UPDATE_EVENT.register((serverDimensions) -> {
+            RealmBiomeSeeds.retainRegistered(serverDimensions);
             if (getIsInitialized()) {
                 List<ResourceKey<Level>> dimensionsToRemove =
                     CLIENT_WORLD_MAP.keySet().stream()
@@ -102,6 +104,7 @@ public class ClientWorldLoader {
         IPCGlobal.CLIENT_EXIT_EVENT.register(() -> {
             dimIdToDimTypeId = null;
             dimIdToSeaLevel = null;
+            RealmBiomeSeeds.disconnected();
         });
     }
     
@@ -412,7 +415,7 @@ public class ClientWorldLoader {
                 simulationDistance,// seems that client world does not use this
                 pendingRenderer.levelExtractor(),
                 CLIENT.level.isDebug(),
-                CLIENT.level.getBiomeManager().biomeZoomSeed,
+                RealmBiomeSeeds.seedForRemoteLevel(dimension, mainNetHandler),
                 // vanilla only syncs the sea level of the player's dimension (on login/respawn)
                 dimIdToSeaLevel != null
                     ? dimIdToSeaLevel.getOrDefault(dimension, CLIENT.level.getSeaLevel())

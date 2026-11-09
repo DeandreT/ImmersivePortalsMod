@@ -4,6 +4,7 @@
 import argparse
 from contextlib import contextmanager
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,9 @@ SCRATCH = Path('/tmp/opencode')
 PROC = Path('/proc')
 MARKER = '.ip-native-recovery-owned'
 LEASE = '.ip-native-recovery-gradle.json'
+BOOTSTRAP_PROVIDER = 'qouteall.imm_ptl.iris_bootstrap.IrisBootstrapProcessor'
+BOOTSTRAP_SERVICE = 'META-INF/services/net.neoforged.neoforgespi.transformation.ClassProcessor'
+BOOTSTRAP_ARTIFACT = 'neoforge/iris-bootstrap/build/libs/riftwoven-iris-bootstrap-1.0.0.jar'
 
 
 def expected_case_names():
@@ -72,34 +76,96 @@ def sha256(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def production_inputs():
+    """Native production sources/configuration only, never build output or test churn."""
+    sources = ['src/main', 'neoforge/src/main', 'dimlib/src/main',
+               'dimlib/neoforge/src/main', 'neoforge/iris-bootstrap/src/main']
+    configuration = ['gradle.properties', 'settings.gradle', 'neoforge/build.gradle', 'neoforge/settings.gradle',
+                     'neoforge/gradle.properties', 'dimlib/neoforge/build.gradle',
+                     'dimlib/neoforge/settings.gradle', 'dimlib/neoforge/gradle.properties',
+                     'neoforge/iris-bootstrap/build.gradle', 'neoforge/iris-bootstrap/settings.gradle',
+                     'neoforge/iris-bootstrap/gradle.properties']
+    inputs = [ROOT / name for name in configuration if (ROOT / name).is_file()]
+    for source in sources:
+        inputs.extend(p for p in (ROOT / source).rglob('*') if p.is_file())
+    return inputs
+
+
+def contains_test_helper(names):
+    return any('recovery_test/' in name or 'client_test/' in name for name in names)
+
+
+def validate_iris_bootstrap(data):
+    """Check the actual nested early library, not just its JarJar declaration."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as library:
+            names = library.namelist()
+            if len(names) != len(set(names)):
+                raise ValueError('Iris bootstrap library contains duplicate entries')
+            if library.testzip() is not None:
+                raise ValueError('Iris bootstrap library failed its nested CRC check')
+            if contains_test_helper(names):
+                raise ValueError('The Iris bootstrap library must not contain development test helpers')
+            if 'META-INF/neoforge.mods.toml' in names or 'fabric.mod.json' in names:
+                raise ValueError('Iris bootstrap must be a LIBRARY, not an ordinary mod')
+            # JAR manifests permit continued header values and have separate named sections.
+            manifest = library.read('META-INF/MANIFEST.MF').decode('utf-8').replace('\r\n', '\n')
+            main = manifest.split('\n\n', 1)[0].replace('\n ', '')
+            attributes = {}
+            for line in main.splitlines():
+                key, separator, value = line.partition(': ')
+                if not separator or key.lower() in attributes:
+                    raise ValueError('Malformed Iris bootstrap library manifest')
+                attributes[key.lower()] = value
+            if attributes.get('fmlmodtype') != 'LIBRARY':
+                raise ValueError('Iris bootstrap requires FMLModType LIBRARY')
+            if attributes.get('automatic-module-name') != 'riftwoven.iris.bootstrap':
+                raise ValueError('Iris bootstrap has the wrong automatic module identity')
+            service = library.read(BOOTSTRAP_SERVICE).decode('utf-8').strip()
+            if service != BOOTSTRAP_PROVIDER:
+                raise ValueError('Iris bootstrap has the wrong ClassProcessor service provider')
+            classes = {name for name in names if name.endswith('.class')}
+            if classes != {BOOTSTRAP_PROVIDER.replace('.', '/') + '.class'}:
+                raise ValueError('Iris bootstrap must contain only its production ClassProcessor class')
+    except (zipfile.BadZipFile, KeyError, UnicodeError) as error:
+        raise ValueError(f'Invalid Iris bootstrap library archive/service: {error}') from error
+
+
 def validate_artifact(artifact):
     """Require a packaged native mod and its own complete, current native bundles."""
     if not artifact.is_file():
         raise ValueError('Build the parent native artifact before running this harness')
-    sources = [ROOT / 'src/main', ROOT / 'neoforge/src/main', ROOT / 'dimlib/src/main',
-               ROOT / 'dimlib/neoforge/src/main']
-    inputs = [ROOT / 'gradle.properties', ROOT / 'neoforge/build.gradle']
-    for source in sources:
-        inputs.extend(p for p in source.rglob('*') if p.is_file())
-    if any(p.stat().st_mtime_ns > artifact.stat().st_mtime_ns for p in inputs):
+    if any(p.stat().st_mtime_ns > artifact.stat().st_mtime_ns for p in production_inputs()):
         raise ValueError('Parent jar is older than production inputs; refresh buildAll first in the assigned build slot')
     with zipfile.ZipFile(artifact) as jar:
+        names = jar.namelist()
+        if jar.testzip() is not None:
+            raise ValueError('The parent jar failed its CRC check')
         metadata = tomllib.loads(jar.read('META-INF/neoforge.mods.toml').decode())
         mods = {mod['modId']: str(mod['version']) for mod in metadata['mods']}
-        if mods.get('immersive_portals') != '7.0.1-dev' or 'fabric.mod.json' in jar.namelist():
-            raise ValueError('Expected the native packaged parent version 7.0.1-dev, without Fabric metadata')
-        if any('recovery_test/' in name for name in jar.namelist()):
+        if mods.get('immersive_portals') != '7.1.0-dev' or 'fabric.mod.json' in jar.namelist():
+            raise ValueError('Expected the native packaged parent version 7.1.0-dev, without Fabric metadata')
+        if contains_test_helper(names):
             raise ValueError('The development harness must not be packaged in the release mod')
         bundled = json.loads(jar.read('META-INF/jarjar/metadata.json'))['jars']
         hashes = {}
         for name, group, artifact_name in [
             ('dimlib', 'qouteall.dimlib', 'dimlib-neoforge'),
             ('cloth', 'me.shedaniel.cloth', 'cloth-config-neoforge'),
+            ('iris_bootstrap', 'qouteall', 'riftwoven-iris-bootstrap'),
         ]:
             matches = [item['path'] for item in bundled if item['identifier'] == {
                 'group': group, 'artifact': artifact_name}]
             if len(matches) != 1:
                 raise ValueError(f'Missing or ambiguous native bundle: {artifact_name}')
+            if names.count(matches[0]) != 1:
+                raise ValueError(f'Missing or ambiguous native bundle entry: {artifact_name}')
+            if name == 'iris_bootstrap':
+                bootstrap = jar.read(matches[0])
+                validate_iris_bootstrap(bootstrap)
+                current = ROOT / BOOTSTRAP_ARTIFACT
+                if not current.is_file() or bootstrap != current.read_bytes():
+                    raise ValueError('The parent jar does not bundle the current native Iris bootstrap artifact')
             hashes[name] = sha256(jar.read(matches[0]))
         dimlib = ROOT / 'dimlib/neoforge/build/libs/dimlib-neoforge-1.1.0+mc26.3.jar'
         if not dimlib.is_file() or hashes['dimlib'] != sha256(dimlib.read_bytes()):
@@ -364,7 +430,7 @@ def main():
     parser.add_argument('--accept-eula', action='store_true',
                         help="Accept Minecraft's EULA only for this new disposable test world")
     parser.add_argument('--artifact', type=Path,
-                        default=MODULE.parent / 'build/libs/immersive-portals-7.0.1-dev-mc26.3-neoforge.jar')
+                         default=MODULE.parent / 'build/libs/riftwoven-7.1.0-dev-mc26.3-neoforge.jar')
     parser.add_argument('--timeout', type=int, default=900, help='Whole inner Gradle/server process deadline, seconds')
     args = parser.parse_args()
     if not args.accept_eula:

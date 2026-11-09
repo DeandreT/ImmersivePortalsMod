@@ -140,6 +140,7 @@ public class FeatureSmokeTest implements FabricClientGameTest {
 
     @Override
     public void runTest(ClientGameTestContext ctx) {
+        if (Boolean.getBoolean("imm_ptl.realmTest.only")) return;
         out = Path.of(System.getProperty("imm_ptl.featureTest.out", "feature-test"));
         try {
             Files.createDirectories(out);

@@ -14,7 +14,7 @@ tasks.withType(net.neoforged.nfrtgradle.NeoFormRuntimeTask).configureEach {
 repositories { mavenCentral() }
 
 def parentArtifact = providers.gradleProperty('parentArtifact').map { file(it) }.getOrElse(
-    file('../build/libs/immersive-portals-7.0.1-dev-mc26.3-neoforge.jar'))
+    file('../build/libs/riftwoven-7.1.0-dev-mc26.3-neoforge.jar'))
 
 dependencies {
     // An actual jar, not a composite dependency substituted with parent source directories.

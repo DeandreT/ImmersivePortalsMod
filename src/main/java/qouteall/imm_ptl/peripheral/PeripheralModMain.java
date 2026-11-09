@@ -55,6 +55,7 @@ public class PeripheralModMain {
     @Environment(EnvType.CLIENT)
     public static void initClient() {
         IPOuterClientMisc.initClient();
+        qouteall.imm_ptl.peripheral.riftwoven.client.RealmRitualClient.init();
         
         PortalWandItemClient.init();
         
@@ -62,6 +63,7 @@ public class PeripheralModMain {
     }
     
     public static void init() {
+        qouteall.imm_ptl.peripheral.riftwoven.Riftwoven.init();
         FormulaGenerator.init();
         
         IntrinsicPortalGeneration.init();

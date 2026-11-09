@@ -1,0 +1,55 @@
+plugins { id 'java-library' }
+
+group = 'qouteall'
+version = '1.0.0'
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(25)
+    withSourcesJar()
+}
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.neoforged.net/releases' }
+    exclusiveContent {
+        forRepository { maven { url = 'https://api.modrinth.com/maven' } }
+        filter { includeGroup 'maven.modrinth' }
+    }
+}
+configurations { publishedIris { transitive = false } }
+dependencies {
+    // FML 12 publishes its public transformation SPI in loader, not legacy ModLauncher.
+    compileOnly('net.neoforged.fancymodloader:loader:12.0.12') { transitive = false }
+    compileOnly 'org.ow2.asm:asm:9.11'
+    compileOnly 'org.ow2.asm:asm-tree:9.11'
+    testImplementation('net.neoforged.fancymodloader:loader:12.0.12') { transitive = false }
+    testImplementation 'org.ow2.asm:asm:9.11'
+    testImplementation 'org.ow2.asm:asm-tree:9.11'
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    publishedIris 'maven.modrinth:iris:Ag5S66CF'
+}
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+    options.encoding = 'UTF-8'
+}
+tasks.named('jar') {
+    manifest.attributes('FMLModType': 'LIBRARY', 'Automatic-Module-Name': 'riftwoven.iris.bootstrap')
+    from('../../LICENSE') { rename { 'LICENSE_immersive-portals' } }
+    from('../../NOTICE') { rename { 'NOTICE_immersive-portals' } }
+}
+tasks.named('sourcesJar') {
+    from('../../LICENSE') { rename { 'LICENSE_immersive-portals' } }
+    from('../../NOTICE') { rename { 'NOTICE_immersive-portals' } }
+}
+tasks.named('test') {
+    dependsOn(tasks.named('jar'))
+    useJUnitPlatform()
+    maxHeapSize = '512m'
+    jvmArgs '-XX:ActiveProcessorCount=2', '-Djava.awt.headless=true'
+    inputs.files(configurations.publishedIris)
+    doFirst {
+        systemProperty 'bootstrap.publishedIris', configurations.publishedIris.singleFile.absolutePath
+        systemProperty 'bootstrap.libraryJar', tasks.named('jar').get().archiveFile.get().asFile.absolutePath
+        systemProperty 'bootstrap.testClasspath', sourceSets.test.runtimeClasspath.asPath
+    }
+}

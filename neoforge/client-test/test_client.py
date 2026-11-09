@@ -27,6 +27,9 @@ ROOT = MODULE.parent.parent
 SCRATCH = Path('/tmp/opencode')
 MARKER = '.ip-native-client-owned'
 IMAGES = {'portal-view.png', 'after-crossing.png', 'after-return.png'}
+REALM_IMAGES = {'realm-portal-view.png', 'realm-terrain.png', 'realm-sky.png', 'realm-return.png', 'realm-terrain-replay.png'}
+MIXIN_AUDIT_FAILURE = re.compile(r'Could not force-load|ClassAlreadyLoadedException|Uninitialized mixin')
+NATIVE_LOADING_FAILURE = re.compile(r'Failed to start FML|Missing or unsupported mandatory dependencies')
 PROFILES = {
     'vanilla': set(),
     'performance': {'sodium', 'lithium', 'ferritecore', 'entityculling', 'immediatelyfast'},
@@ -99,6 +102,8 @@ def gradle_command(args, directory, report, manifest, nonce, java_home=None):
                f'-PawayTicks={args.away_ticks}', f'-PshaderPackExpected={str(args.shader_pack is not None).lower()}']
     if args.offline:
         command.insert(3, '--offline')
+    if getattr(args, 'realm', False):
+        command.append('-Prealm=true')
     return command
 
 
@@ -308,6 +313,30 @@ def check_image(path, deadline):
     return result
 
 
+def check_realm_image(path, deadline):
+    """Natural terrain has no fixed marker colors; reject blank captures, retain actual RGB evidence."""
+    data = path.read_bytes()
+    if data[:8] != b'\x89PNG\r\n\x1a\n' or len(data) < 24:
+        raise AssertionError(f'Missing actual realm framebuffer PNG: {path.name}')
+    width, height = struct.unpack('>II', data[16:24])
+    if width < 640 or height < 400:
+        raise AssertionError('Realm framebuffer image is too small')
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError('Native-client lifetime exceeded during realm screenshot validation')
+    raw = subprocess.run(['ffmpeg', '-loglevel', 'error', '-i', str(path), '-vf', 'scale=64:40',
+                          '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], check=True, capture_output=True,
+                         timeout=min(15, remaining)).stdout
+    if len(raw) != 64 * 40 * 3:
+        raise AssertionError('Incomplete decoded realm framebuffer')
+    colors = {tuple(raw[index:index + 3]) for index in range(0, len(raw), 3)}
+    mean = sum(raw) / len(raw)
+    if len(colors) < 16 or mean < 8 or mean > 250:
+        raise AssertionError(f'Blank/unusable realm framebuffer: {path.name}')
+    return {'width': width, 'height': height, 'sampled_rgb_colors': len(colors), 'mean_rgb': mean,
+            'validation': 'nonblank actual framebuffer; natural terrain/sky pixels are not a fixed-color oracle'}
+
+
 def copy_shader_pack(source, directory):
     source = source.resolve(strict=True)
     if source in {Path.home().resolve(), ROOT, *ROOT.parents}:
@@ -328,7 +357,7 @@ def copy_shader_pack(source, directory):
     (directory / 'config/iris.properties').write_text(f'enableShaders=true\nshaderPack={source.name}\n')
 
 
-def validate_result(result, manifest, profile, log):
+def validate_result(result, manifest, profile, log, realm=False):
     if (result.get('status') != 'RUNTIME_PASS' or result.get('physical_side') != 'CLIENT'
             or result.get('profile') != profile or result.get('login_events') != 1
             or result.get('actual_local_connection') is not True or result.get('rendered_frames', 0) < 30
@@ -339,7 +368,7 @@ def validate_result(result, manifest, profile, log):
     for key in ['config_start', 'config_complete', 'dimension_sync', 'portal_sync']:
         if result.get(key, 0) <= 0:
             raise AssertionError(f'Actual protocol observation missing: {key}')
-    if (result.get('prediction_dimensions') != ['minecraft:the_nether', 'minecraft:overworld']
+    if not realm and (result.get('prediction_dimensions') != ['minecraft:the_nether', 'minecraft:overworld']
             or result.get('server_teleport_requests', 0) < 2):
         raise AssertionError('Both dimension transitions must be authentic predicted portal crossings')
     artifacts = result.get('artifacts', {})
@@ -359,6 +388,9 @@ def validate_result(result, manifest, profile, log):
                 if not any(artifact_checks.sha256(jar.read(name)) == mod.get('loaded_sha256')
                            for name in jar.namelist() if name.startswith('META-INF/jarjar/') and name.endswith('.jar')):
                     raise AssertionError('Loaded optional native mod bytes do not belong to the original outer jar')
+    if realm:
+        validate_realm_result(result, log)
+        return
     landings = result.get('landings', [])
     expected = [('source_ready', 'minecraft:overworld', -20), ('nether_landing', 'minecraft:the_nether', 100),
                 ('overworld_return', 'minecraft:overworld', -20)]
@@ -374,11 +406,189 @@ def validate_result(result, manifest, profile, log):
                    'IP_NATIVE_CLIENT_RETURNED minecraft:overworld correct_landing=true', 'IP_NATIVE_CLIENT_DONE status=RUNTIME_PASS']:
         if marker not in log:
             raise AssertionError(f'Missing positive real-client log marker: {marker}')
-    if smoke.FATAL_LOG.search(log) or 'IP_NATIVE_CLIENT_FAIL' in log or 'IP_NATIVE_CLIENT_REPORT_FAIL' in log:
+    if smoke.FATAL_LOG.search(log) or NATIVE_LOADING_FAILURE.search(log) or 'IP_NATIVE_CLIENT_FAIL' in log or 'IP_NATIVE_CLIENT_REPORT_FAIL' in log:
         raise AssertionError('Native client logged a fatal error')
 
 
-def supervise(command, environment, directory, report, wrapper, nonce, deadline):
+def validate_realm_result(result, log):
+    if result.get('scenario') != 'riftwoven_realm':
+        raise AssertionError('Requested realm scenario did not run')
+    evidence = result.get('realm', {})
+    dimension = evidence.get('dimension', '')
+    if not re.fullmatch(r'riftwoven:realm_[0-9a-f]{32}', dimension):
+        raise AssertionError('Missing actual ledger realm dimension')
+    for key in ['formation_valid', 'survival_player', 'offering_refund_reoffering', 'saved_idempotent_retry', 'world_saved_before_retry']:
+        if evidence.get(key) is not True:
+            raise AssertionError(f'Missing actual realm ledger/core evidence: {key}')
+    if (evidence.get('unpaid_worlds') != 3 or evidence.get('realm_count') != 1
+            or evidence.get('diamonds_before') != 8 or evidence.get('diamonds_after') != 4
+            or evidence.get('actual_level_seed') != evidence.get('realm_seed')
+            or not isinstance(evidence.get('realm_seed'), int) or evidence['realm_seed'] == evidence.get('overworld_seed')
+            or not 128 <= evidence.get('radius', 0) <= 1024
+            or evidence.get('border_size') != evidence['radius'] * 2
+            or evidence.get('suns') != 2 or evidence.get('moons') != 1
+            or not evidence.get('terrain_sample', {}).get('state')):
+        raise AssertionError('Actual realm payment, independent seed, finite border or recipe differs')
+    for key in ['realm_private_portal_received', 'realm_generated_chunk_received', 'realm_environment_before_entry',
+                'realm_entry_predicted', 'realm_entry_ack_settled', 'realm_camera_same_dimension_reposition',
+                'realm_clock_advanced', 'realm_photo_weather_clear', 'realm_return_ack_settled', 'realm_departure_retained_until_ack',
+                'realm_departure_cleared_after_ack', 'realm_overworld_environment_restored', 'realm_mixin_audit_invoked']:
+        if result.get(key) is not True:
+            raise AssertionError(f'Missing actual realm-client evidence: {key}')
+    if (result.get('realm_original_prediction_dimensions') != [dimension]
+            or result.get('prediction_dimensions') != [dimension, 'ip_native_client_test:terrain_replay']
+            or result.get('server_teleport_requests', 0) < 2
+            or result.get('realm_remote_sky_extractions', 0) < 1 or result.get('realm_sky_extractions', 0) < 1
+            or result.get('realm_two_sun_draws', 0) < 1):
+        raise AssertionError('Realm requires its own genuine predicted entry and actual remote/inside sky draws')
+    weather = result.get('realm_photo_weather', {})
+    if (any(weather.get(key) != 0 for key in ['server_rain', 'server_thunder', 'client_rain', 'client_thunder'])
+            or weather.get('clear_ticks', 0) < 60):
+        raise AssertionError('Realm sky photograph was not taken after actual clear-weather fade and fresh draws')
+    for key in ['realm_preview_clock', 'realm_inside_clock', 'realm_final_clock']:
+        clock = result.get(key, {})
+        if (clock.get('suns') != 2 or clock.get('moons') != 1
+                or not all(isinstance(clock.get(field), (int, float)) for field in [
+                    'server_clock_ticks', 'client_clock_ticks', 'server_rate', 'client_rate', 'server_physical_ticks', 'overworld_clock_ticks'])
+                or abs(clock['server_clock_ticks'] - clock['client_clock_ticks']) > 80
+                or abs(clock['server_rate'] - clock['client_rate']) > 0.0001
+                or abs(clock['server_clock_ticks'] - clock['overworld_clock_ticks']) < 100):
+            raise AssertionError(f'Missing/wrong actual dimension-scoped realm clock: {key}')
+    if (result['realm_final_clock']['server_physical_ticks'] <= result['realm_preview_clock']['server_physical_ticks']
+            or result['realm_final_clock']['client_clock_ticks'] <= result['realm_preview_clock']['client_clock_ticks']):
+        raise AssertionError('Actual realm clocks did not advance')
+    expected = [('realm_source_ready', 'minecraft:overworld'), ('realm_landing', dimension),
+                ('realm_terrain_camera', dimension),
+                ('realm_overworld_return', 'minecraft:overworld')]
+    landings = result.get('landings', [])
+    if len(landings) != len(expected):
+        raise AssertionError('Missing actual realm source/entry/terrain-camera/return landing snapshots')
+    for actual, (stage, dim) in zip(landings, expected):
+        if (actual.get('stage') != stage or actual.get('dimension') != dim or actual.get('client_dimension') != dim
+                or actual.get('awaiting_teleport') is not False or actual.get('registered') is not True
+                or not all(isinstance(actual.get(f'{side}_{axis}'), (int, float)) for side in ['server', 'client'] for axis in 'xyz')
+                or sum((actual[f'server_{axis}'] - actual[f'client_{axis}']) ** 2 for axis in 'xyz') >= 0.25):
+            raise AssertionError(f'Incorrect/unsettled actual realm client/server landing: {stage}')
+        if dim == 'minecraft:overworld' and sum((actual[f'server_{axis}'] - value) ** 2
+                                               for axis, value in zip('xyz', [0.5, 101, 3.5])) >= 0.25:
+            raise AssertionError(f'Wrong recorded safe realm departure/return position: {stage}')
+        if stage == 'realm_terrain_camera':
+            camera = result.get('realm_selected_camera', {})
+            if (not all(isinstance(camera.get(axis), (int, float)) for axis in 'xyz')
+                    or sum((actual[f'server_{axis}'] - camera[axis]) ** 2 for axis in 'xyz') >= 0.25):
+                raise AssertionError('Actual realm terrain-camera landing differs from selected natural terrain site')
+    validate_photo_readiness(result.get('realm_terrain_main_draw', {}), dimension,
+                             result.get('realm_selected_camera', {}), result.get('realm_terrain_readiness', {}),
+                             result.get('realm_terrain_ready_consecutive_frames', 0))
+    server_sample, client_sample = result.get('realm_terrain_server', {}), result.get('realm_terrain_client', {})
+    for sample in [server_sample, client_sample]:
+        if (sample.get('dimension') != dimension or sample.get('position') != result.get('realm_selected_camera')
+                or sample.get('floor_sturdy') is not True or sample.get('feet') != 'Block{minecraft:air}'
+                or sample.get('head') != 'Block{minecraft:air}'):
+            raise AssertionError('Actual main terrain camera/ground sample is not settled/supported')
+    if server_sample.get('floor') != client_sample.get('floor'):
+        raise AssertionError('Actual main terrain client/server ground differs')
+    for marker in ['IP_NATIVE_CLIENT_BEGIN', f'IP_NATIVE_REALM_CROSSED {dimension} awaiting_teleport=false',
+                   'IP_NATIVE_REALM_RETURNED minecraft:overworld awaiting_teleport=false', 'IP_NATIVE_CLIENT_DONE status=RUNTIME_PASS']:
+        if marker not in log:
+            raise AssertionError(f'Missing positive realm-client log marker: {marker}')
+    if (smoke.FATAL_LOG.search(log) or NATIVE_LOADING_FAILURE.search(log) or MIXIN_AUDIT_FAILURE.search(log)
+            or 'IP_NATIVE_CLIENT_FAIL' in log or 'IP_NATIVE_CLIENT_REPORT_FAIL' in log):
+        raise AssertionError('Native realm client logged a fatal/mixin audit error')
+    validate_terrain_replay(result.get('terrain_replay', {}))
+
+
+def validate_terrain_replay(replay):
+    dimension = 'ip_native_client_test:terrain_replay'
+    camera = {'x': 24.5, 'y': 68, 'z': 24.5}
+    if (replay.get('status') != 'DIAGNOSTIC_CAPTURED' or replay.get('dimension') != dimension
+            or replay.get('seed') != -8484714376220950612 or replay.get('actual_level_seed') != replay.get('seed')
+            or replay.get('camera') != camera or replay.get('yaw') != 135 or replay.get('pitch') != 12
+            or not replay.get('coverage')):
+        raise AssertionError('Missing/wrong supplemental original-seed terrain replay')
+    for key in ['metadata_sent_before_chunk_requests', 'client_metadata_before_predicted_entry', 'ordinary_entry_predicted',
+                'arrival_geometry_copied_without_identity', 'natural_floor_matches', 'safe_return_ack_settled']:
+        if replay.get(key) is not True:
+            raise AssertionError(f'Missing supplemental terrain replay evidence: {key}')
+    if replay.get('entry_server_requests', 0) < 1:
+        raise AssertionError('Supplemental ordinary portal replay has no actual server entry request')
+    if replay.get('clear_ticks', 0) < 60 or not replay.get('natural_floor', '').startswith('Block{minecraft:grass_block}'):
+        raise AssertionError('Replay did not preserve the original natural grass site/normal clear-weather fade')
+    for side in ['server', 'client']:
+        sample = replay.get(side, {})
+        if (sample.get('dimension') != dimension or sample.get('position') != camera
+                or sample.get('feet') != 'Block{minecraft:air}' or sample.get('head') != 'Block{minecraft:air}'
+                or not sample.get('floor', '').startswith('Block{minecraft:grass_block}') or sample.get('floor_sturdy') is not True):
+            raise AssertionError(f'Wrong replay actual natural camera/ground: {side}')
+    if replay['server'].get('rain') != 0 or replay['server'].get('thunder') != 0:
+        raise AssertionError('Replay weather did not clear normally')
+    readiness = replay.get('render_readiness', {})
+    if any(readiness.get(key) is not True for key in ['camera_matches', 'orientation_matches', 'unclipped_main_view', 'ground_mesh_ready', 'ready']):
+        raise AssertionError('Replay main-view camera/clipping/ground mesh is not ready')
+    draw = replay.get('main_draw', {})
+    if (draw.get('portal_layer') != 0 or draw.get('clip_plane') != [0, 0, 0, 0]
+            or not isinstance(draw.get('view_determinant'), (int, float)) or not 0.99 < draw['view_determinant'] < 1.01):
+        raise AssertionError('Replay main view has wrong clip or reflected camera state')
+    validate_photo_readiness(draw, dimension, camera, readiness, replay.get('ready_consecutive_frames', 0))
+    landings = replay.get('landings', [])
+    expected = [('diagnostic_portal_arrival', dimension, None), ('diagnostic_arrival', dimension, camera),
+                ('diagnostic_safe_return', 'minecraft:overworld', {'x': 0.5, 'y': 101, 'z': 3.5})]
+    if len(landings) != 3:
+        raise AssertionError('Missing separate replay arrival/safe-return snapshots')
+    for actual, (stage, dim, position) in zip(landings, expected):
+        if (actual.get('stage') != stage or actual.get('server_dimension') != dim or actual.get('client_dimension') != dim
+                or actual.get('awaiting_teleport') is not False or actual.get('registered') is not True
+                or any(not all(isinstance(actual.get(f'{side}_position', {}).get(axis), (int, float)) for axis in 'xyz')
+                       or (position is not None and sum((actual[f'{side}_position'][axis] - position[axis]) ** 2 for axis in 'xyz') >= 0.25)
+                       for side in ['server', 'client'])):
+            raise AssertionError(f'Incorrect/unsettled separate replay landing: {stage}')
+        if sum((actual['server_position'][axis] - actual['client_position'][axis]) ** 2 for axis in 'xyz') >= 0.25:
+            raise AssertionError(f'Mismatched separate replay landing: {stage}')
+
+
+def validate_photo_readiness(draw, dimension, camera, readiness, consecutive):
+    required = ['camera_matches', 'orientation_matches', 'unclipped_main_view', 'ground_mesh_ready',
+                'dimension_matches', 'neighbors_loaded_and_lit', 'ground_supported', 'foreground_meshes_ready',
+                'compile_queue_empty', 'ready']
+    if (any(readiness.get(key) is not True for key in required) or consecutive < 5
+            or draw.get('ready_consecutive_frames') != consecutive or draw.get('draw_sequence', 0) < 1
+            or draw.get('render_frame_identity', 0) < 1
+            or draw.get('capture_frame_identity') != draw.get('render_frame_identity')
+            or draw.get('dimension') != dimension):
+        raise AssertionError('Terrain photo lacks fresh consecutive same-view mesh/light readiness')
+    observed = draw.get('camera', {})
+    if (not all(isinstance(camera.get(axis), (int, float)) and isinstance(observed.get(axis), (int, float)) for axis in 'xyz')
+            or any(abs(observed[axis] - camera[axis] - (1.62 if axis == 'y' else 0)) > 0.01 for axis in 'xyz')
+            or draw.get('yaw') != 135 or draw.get('pitch') != 12
+            or draw.get('portal_layer') != 0 or draw.get('clip_plane') != [0, 0, 0, 0]):
+        raise AssertionError('Terrain photo actual draw has wrong camera/orientation/clip')
+    floor = (int(camera['x']) // 16, (int(camera['y']) - 1) // 16, int(camera['z']) // 16)
+    if draw.get('sodium_geometry', -1) >= 0:
+        evidence = draw.get('sodium_section_evidence', {})
+        sections = evidence.get('sections', [])
+        ground = next((section for section in sections if tuple(section.get(axis) for axis in 'xyz') == floor), {})
+        expected_cells = {(floor[0] + dx, floor[1] + dy, floor[2] + dz)
+                          for dx in [-1, 0, 1] for dy in [-1, 0, 1] for dz in [-1, 0, 1]}
+        if (evidence.get('verified') is not True or draw.get('sodium_pending') != 0
+                or ground.get('built') is not True or ground.get('drawn_geometry') is not True
+                or ground.get('solid_allocation_length', 0) <= 0
+                or len(sections) != 27 or {tuple(section.get(axis) for axis in 'xyz') for section in sections} != expected_cells
+                or any(not all(isinstance(section.get(key), bool) for key in ['empty_air', 'tree_present', 'in_frustum', 'built'])
+                       or (not section['empty_air'] and section['tree_present'] and section['in_frustum'] and not section['built'])
+                       for section in sections)):
+            raise AssertionError('Terrain photo Sodium camera-floor/foreground geometry is not ready')
+    else:
+        sections = draw.get('visible_sections', [])
+        ground = next((section for section in sections if tuple(section.get(axis) for axis in 'xyz') == floor), {})
+        nearby = [section for section in sections if all(isinstance(section.get(axis), int)
+                  and abs(section[axis] - value) <= 1 for axis, value in zip('xyz', floor))]
+        if (draw.get('compile_queue_empty') is not True or ground.get('uncompiled') is not False
+                or ground.get('solid_indices', 0) <= 0 or not nearby
+                or any(not section.get('empty_air') and section.get('uncompiled') is not False for section in nearby)):
+            raise AssertionError('Terrain photo camera-floor/foreground meshes or compile queue are not ready')
+
+
+def supervise(command, environment, directory, report, wrapper, nonce, deadline, realm=False):
     if time.monotonic() >= deadline:
         raise TimeoutError('Native-client lifetime expired before dispatch')
     # Mandatory at the actual dispatch too; never trust only an environment marker.
@@ -386,10 +596,10 @@ def supervise(command, environment, directory, report, wrapper, nonce, deadline)
     with launch_process(command, lambda process: terminate(process, directory, Path(environment['JAVA_HOME'])),
                         cwd=MODULE, env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                         text=True, bufsize=1, start_new_session=True) as process:
-        return observe_client(process, report, wrapper, deadline)
+        return observe_client(process, report, wrapper, deadline, realm=realm)
 
 
-def observe_client(process, report, wrapper, deadline):
+def observe_client(process, report, wrapper, deadline, realm=False):
     lines = queue.Queue(maxsize=512)
     def read():
         try:
@@ -401,6 +611,7 @@ def observe_client(process, report, wrapper, deadline):
     images = {}
     fatal_line = None
     fatal_deadline = None
+    expected_images = REALM_IMAGES if realm else IMAGES
     with (report / 'client.log').open('w') as output:
         while True:
             remaining = min(deadline, fatal_deadline or deadline) - time.monotonic()
@@ -418,7 +629,8 @@ def observe_client(process, report, wrapper, deadline):
             output.write(line)
             output.flush()
             print(line, end='', flush=True)
-            if smoke.FATAL_LOG.search(line) or 'IP_NATIVE_CLIENT_FAIL' in line or 'IP_NATIVE_CLIENT_REPORT_FAIL' in line:
+            if (smoke.FATAL_LOG.search(line) or NATIVE_LOADING_FAILURE.search(line) or 'IP_NATIVE_CLIENT_FAIL' in line or 'IP_NATIVE_CLIENT_REPORT_FAIL' in line
+                    or (realm and MIXIN_AUDIT_FAILURE.search(line))):
                 if fatal_line is None:
                     fatal_line = line.strip()[:300]
                     # Java loggers flush stack/cause lines after the headline.
@@ -427,15 +639,15 @@ def observe_client(process, report, wrapper, deadline):
                     fatal_deadline = min(deadline, time.monotonic() + 3)
             if fatal_line is None and 'IP_NATIVE_CLIENT_SCREENSHOT ' in line:
                 name = line.split('IP_NATIVE_CLIENT_SCREENSHOT ', 1)[1].strip()
-                if name not in IMAGES or name in images:
+                if name not in expected_images or name in images:
                     raise AssertionError('Unexpected/duplicate framebuffer capture marker')
-                images[name] = check_image(report / name, deadline)
+                images[name] = (check_realm_image if realm else check_image)(report / name, deadline)
     if fatal_line is not None:
         raise RuntimeError(f'Fail-fast native client output (cause retained): {fatal_line}')
     code = process.wait(timeout=max(0.1, deadline - time.monotonic()))
     if code != 0:
         raise RuntimeError(f'Native client/build exited with {code}')
-    if set(images) != IMAGES:
+    if set(images) != expected_images:
         raise AssertionError('Not all actual framebuffer captures passed')
     return images
 
@@ -452,7 +664,17 @@ def run(args, wrapper, deadline):
     summary = {'status': 'FAIL', 'artifact': manifest, 'profile': args.profile, 'world_removed': False,
                'limitations': ['One real physical client with one integrated-server player, using actual local in-memory transport.',
                                'Not remote/TCP or two-player networking, dedicated-server client admission, multiplayer tracking, or a performance benchmark.',
-                               'Return terrain is checked after the normal rebuild API; idle renderer eviction itself is not asserted.']}
+                                'Return terrain is checked after the normal rebuild API; idle renderer eviction itself is not asserted.']}
+    if args.realm:
+        summary['scenario'] = 'riftwoven_realm'
+        summary['limitations'] = [
+            'One genuine survival client and integrated server with actual native local in-memory networking, not TCP/multiplayer.',
+            'Formation and inventory are fixtures; public core/ledger APIs perform real offering/refund/payment. The doorway is manually configured with public RealmPortal/departure APIs, not the physical hold ritual.',
+            'Only entry is predicted. Return invokes the permanent core public API and maintained travel admission/rollback, with normal client ACK settlement.',
+            'Terrain camera uses an explicit same-dimension reposition after genuine entry. Realm screenshots reject blank frames; they do not count visible celestial pixels or replace the baseline fixed-color oracle.',
+            'Saved journal reopen/idempotent retry and world save are checked, not process restart/reconnect. Mixin audit diagnoses application, not every gameplay path or absent optional mods.',
+            'Normal return terrain rebuild is requested; renderer eviction and performance budgets are not asserted.']
+        summary['limitations'].append('Supplemental frozen-seed terrain replay is an admin-created diagnostic dimension with ordinary predicted Portal entry and general PortalAPI safe return, not a paid identity/private RealmPortal admission. It occurs later in the JVM than the original first entry. Its image and mesh readiness still require visual inspection; a nonblank image is not terrain-quality proof.')
     directory = None
     environment = None
     try:
@@ -481,17 +703,18 @@ def run(args, wrapper, deadline):
                     os.environ.clear()
                     os.environ.update(original)
                 images = supervise(gradle_command(args, directory, report, manifest, nonce, java), environment,
-                                   directory, report, wrapper, nonce, deadline)
+                                   directory, report, wrapper, nonce, deadline, realm=args.realm)
                 result = json.loads((report / 'runtime-results.json').read_text())
                 log = (report / 'client.log').read_text(errors='replace')
-                validate_result(result, manifest, args.profile, log)
+                validate_result(result, manifest, args.profile, log, realm=args.realm)
                 if result['away_ticks_completed'] < args.away_ticks or (args.shader_pack is not None and result.get('shader_pack_active') is not True):
                     raise AssertionError('Requested idle/shader conditions were not exercised')
                 if any((directory / 'crash-reports').glob('*')):
                     raise AssertionError('Native client wrote a crash report')
                 if artifact_checks.sha256(args.artifact.read_bytes()) != manifest['sha256']:
                     raise AssertionError('Parent jar changed while qualifying')
-                summary.update(status='PASS_SINGLE_CLIENT_LOCAL', screenshots=images, runtime_report=str(report / 'runtime-results.json'))
+                summary.update(status='PASS_REALM_SINGLE_CLIENT_LOCAL' if args.realm else 'PASS_SINGLE_CLIENT_LOCAL',
+                               screenshots=images, runtime_report=str(report / 'runtime-results.json'))
             finally:
                 terminate(None, directory, java)
                 for name in ['logs', 'crash-reports']:
@@ -513,10 +736,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--accept-eula', action='store_true')
     parser.add_argument('--display-wrapper', type=Path, default=os.environ.get('IP_NATIVE_DISPLAY_WRAPPER'))
-    parser.add_argument('--artifact', type=Path, default=MODULE.parent / 'build/libs/immersive-portals-7.0.1-dev-mc26.3-neoforge.jar')
+    parser.add_argument('--artifact', type=Path, default=MODULE.parent / 'build/libs/riftwoven-7.1.0-dev-mc26.3-neoforge.jar')
+    parser.add_argument('--realm', action='store_true', help='Optional genuine survival realm scenario; baseline Nether qualification remains the default')
     parser.add_argument('--profile', choices=PROFILES, default='vanilla')
     parser.add_argument('--shader-pack', type=Path)
-    parser.add_argument('--away-ticks', type=int, default=2600, help='Stay in Nether before returning (200..4000; default 130 seconds)')
+    parser.add_argument('--away-ticks', type=int, default=2600, help='Stay in the destination before returning (200..4000; default 130 seconds)')
     parser.add_argument('--offline', action='store_true', help='Require existing Gradle/asset/mod caches')
     parser.add_argument('--verify-dispatch', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--run-dir', type=Path, help=argparse.SUPPRESS)

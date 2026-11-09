@@ -8,7 +8,7 @@ file('../gradle.properties').withInputStream { sharedProperties.load(it) }
 def shared = { String name -> providers.gradleProperty(name).getOrElse(sharedProperties.getProperty(name)) }
 version = shared('mod_version') + (providers.gradleProperty('build_number').isPresent() ? "+build.${providers.gradleProperty('build_number').get()}" : '')
 group = shared('maven_group')
-base.archivesName = 'immersive-portals-neoforge'
+base.archivesName = "${shared('archives_base_name')}-neoforge"
 
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(25)
@@ -132,6 +132,10 @@ neoForge {
 }
 
 dependencies {
+    // FML collects early processors from LIBRARY jars before preparing Mixin configs.
+    // Resolve the separate LIBRARY jar for source-set launches as well as packaged runs.
+    runtimeOnly 'qouteall:riftwoven-iris-bootstrap:1.0.0'
+    jarJar 'qouteall:riftwoven-iris-bootstrap:[1.0.0]'
     implementation "qouteall.dimlib:dimlib-neoforge:${shared('dimlib_version')}"
     jarJar "qouteall.dimlib:dimlib-neoforge:[${shared('dimlib_version')}]"
     implementation("me.shedaniel.cloth:cloth-config-neoforge:${shared('cloth_config_version')}")
@@ -166,7 +170,7 @@ tasks.named('processResources') {
     filesMatching('META-INF/neoforge.mods.toml') { expand(version: project.version) }
 }
 tasks.named('jar') {
-    archiveFileName = "immersive-portals-${project.version}-mc26.3-neoforge.jar"
+    archiveFileName = "${shared('archives_base_name')}-${project.version}-mc26.3-neoforge.jar"
     from('../LICENSE') { rename { 'LICENSE_immersive-portals' } }
     from('../NOTICE') { rename { 'NOTICE_immersive-portals' } }
 }
@@ -194,6 +198,26 @@ def verifyLoaderIsolation = tasks.register('verifyLoaderIsolation') {
             assert bundled.jars.any { dependency ->
                 dependency.identifier.group == 'me.shedaniel.cloth' && dependency.identifier.artifact == 'cloth-config-neoforge'
             } : 'The native Cloth Config artifact must be bundled'
+            def bootstrap = bundled.jars.findAll { dependency ->
+                dependency.identifier.group == 'qouteall' && dependency.identifier.artifact == 'riftwoven-iris-bootstrap'
+            }
+            assert bootstrap.size() == 1 : 'Exactly one early Iris bootstrap library must be bundled'
+            def bootstrapEntry = zip.getEntry(bootstrap.first().path)
+            assert bootstrapEntry != null : 'The early Iris bootstrap bundle is missing'
+            new java.util.jar.JarInputStream(zip.getInputStream(bootstrapEntry)).withCloseable { library ->
+                assert library.manifest.mainAttributes.getValue('FMLModType') == 'LIBRARY' : 'Iris bootstrap must remain an FML library'
+                def serviceFound = false
+                def entry
+                while ((entry = library.nextJarEntry) != null) {
+                    assert entry.name != 'META-INF/neoforge.mods.toml' : 'Iris bootstrap must not be an ordinary mod'
+                    if (entry.name == 'META-INF/services/net.neoforged.neoforgespi.transformation.ClassProcessor') {
+                        assert new String(library.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim() ==
+                            'qouteall.imm_ptl.iris_bootstrap.IrisBootstrapProcessor' : 'Unexpected early Iris processor service'
+                        serviceFound = true
+                    }
+                }
+                assert serviceFound : 'Early Iris processor service is missing'
+            }
             zip.entries().each { entry ->
                 if (entry.name.endsWith('.class')) {
                     def constants = new String(zip.getInputStream(entry).bytes, java.nio.charset.StandardCharsets.ISO_8859_1)
@@ -204,5 +228,10 @@ def verifyLoaderIsolation = tasks.register('verifyLoaderIsolation') {
         }
     }
 }
-tasks.named('check') { dependsOn(verifyLoaderIsolation) }
-tasks.named('test') { useJUnitPlatform() }
+tasks.named('check') {
+    dependsOn(verifyLoaderIsolation, gradle.includedBuild('riftwoven-iris-bootstrap').task(':check'))
+}
+tasks.named('test') {
+    useJUnitPlatform()
+    dependsOn(gradle.includedBuild('riftwoven-iris-bootstrap').task(':test'))
+}

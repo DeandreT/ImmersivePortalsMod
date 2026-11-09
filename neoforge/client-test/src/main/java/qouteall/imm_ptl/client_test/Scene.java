@@ -2,8 +2,11 @@ package qouteall.imm_ptl.client_test;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
 import qouteall.imm_ptl.core.portal.Portal;
 
@@ -22,7 +25,24 @@ final class Scene {
             "execute in minecraft:the_nether run fill -10 90 -10 10 120 10 minecraft:red_concrete hollow",
             "execute in minecraft:the_nether run fill -9 99 -9 9 99 9 minecraft:red_concrete",
             "execute in minecraft:the_nether run fill -9 119 -9 9 119 9 minecraft:glowstone"
-        }) { command(server, command); }
+        }) { checkedCommand(server, command); }
+        var nether = server.getLevel(Level.NETHER);
+        ArtifactProof.require(nether != null, "Destination dimension is absent");
+        int lime = 0;
+        for (BlockPos pos : BlockPos.betweenClosed(-32, -40, -32, 32, -40, 32)) {
+            if (server.overworld().getBlockState(pos).is(Blocks.CONCRETE.pick(DyeColor.LIME))) { lime++; }
+        }
+        var markers = java.util.Map.<String, Object>of(
+            "lime_count", lime, "expected_lime_count", 4225,
+            "glass", server.overworld().getBlockState(new BlockPos(0, -21, 0)).toString(),
+            "red_floor", nether.getBlockState(new BlockPos(0, 99, 0)).toString(),
+            "red_wall", nether.getBlockState(new BlockPos(-10, 108, 0)).toString());
+        BaselineMarkerDiagnostics.serverMarkers(markers);
+        ArtifactProof.require(lime == 4225
+            && server.overworld().getBlockState(new BlockPos(0, -21, 0)).is(Blocks.GLASS)
+            && nether.getBlockState(new BlockPos(0, 99, 0)).is(Blocks.CONCRETE.pick(DyeColor.RED))
+            && nether.getBlockState(new BlockPos(-10, 108, 0)).is(Blocks.CONCRETE.pick(DyeColor.RED)),
+            "Baseline server marker fixture differs: " + markers);
         portal(server.overworld(), -30, server.getLevel(Level.NETHER), 108);
         portal(server.getLevel(Level.NETHER), 98, server.overworld(), -15);
         // This is the ONLY positioning teleport in the harness, within the source dimension.
@@ -45,9 +65,17 @@ final class Scene {
 
     static void release(MinecraftServer server, boolean returning) {
         // Remove a support block, never send a teleport or fake client input/ACK.
-        if (returning) { command(server, "setblock 0 -21 0 minecraft:glass"); }
-        command(server, returning ? "execute in minecraft:the_nether run setblock 0 99 0 minecraft:air"
+        if (returning) { checkedCommand(server, "setblock 0 -21 0 minecraft:glass"); }
+        checkedCommand(server, returning ? "execute in minecraft:the_nether run setblock 0 99 0 minecraft:air"
             : "setblock 0 -21 0 minecraft:air");
+    }
+
+    private static void checkedCommand(MinecraftServer server, String command) {
+        var outcome = new BaselineCommandOutcome();
+        server.getCommands().performPrefixedCommand(
+            server.createCommandSourceStack().withCallback(outcome::accept), command);
+        BaselineMarkerDiagnostics.command(command, outcome);
+        ArtifactProof.require(outcome.succeeded(), "Baseline command failed or produced no result callback: " + command);
     }
 
     static void command(MinecraftServer server, String command) {

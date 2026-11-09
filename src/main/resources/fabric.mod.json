@@ -7,8 +7,8 @@
     "immersive_portals_core"
   ],
   "version": "${version}",
-  "name": "Immersive Portals (Revived)",
-  "description": "See through portals and travel between dimensions seamlessly. Unofficial port of Immersive Portals by qouteall to Minecraft 26.3. Please report issues to the port, not to the original author.",
+  "name": "Riftwoven",
+  "description": "Shape the seed. Discover the world. See through portals and travel between dimensions seamlessly. A development fork of qouteall's Immersive Portals for Minecraft 26.3, based on Immersive Portals Revived and ImmersivelyVibedPortals. Realm Seeds are under development. Please report issues to Riftwoven, not to the original author.",
   "authors": [
     "qouteall (original author)"
   ],

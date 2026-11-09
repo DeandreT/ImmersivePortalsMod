@@ -63,7 +63,7 @@ public class IPModMain {
         PlatformHooks.init();
         loadConfig();
         
-        Helper.LOGGER.info("Immersive Portals Mod Initializing");
+        Helper.LOGGER.info("Riftwoven Mod Initializing");
         
         ImmPtlNetworking.init();
         ImmPtlNetworkConfig.init();
@@ -141,7 +141,7 @@ public class IPModMain {
             }
         }
         
-        Helper.log("Loading Immersive Portals config");
+        Helper.log("Loading Riftwoven config");
         IPGlobal.configHolder = AutoConfig.register(IPConfig.class, GsonConfigSerializer::new);
         IPGlobal.configHolder.registerSaveListener((configHolder, ipConfig) -> {
             ipConfig.onConfigChanged();

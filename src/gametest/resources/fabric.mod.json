@@ -10,7 +10,8 @@
       "qouteall.imm_ptl.gametest.FeatureSmokeTest",
       "qouteall.imm_ptl.gametest.PortalRegressionTest",
       "qouteall.imm_ptl.gametest.IrisDepthRegressionTest",
-      "qouteall.imm_ptl.gametest.PerfBenchmark"
+      "qouteall.imm_ptl.gametest.PerfBenchmark",
+      "qouteall.imm_ptl.gametest.RealmSeedRegressionTest"
     ]
   },
   "depends": {

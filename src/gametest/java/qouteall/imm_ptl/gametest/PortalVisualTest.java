@@ -65,6 +65,13 @@ public class PortalVisualTest implements FabricClientGameTest {
 
     @Override
     public void runTest(ClientGameTestContext ctx) {
+        if (Boolean.getBoolean("imm_ptl.realmTest.only")) {
+            ctx.runOnClient(client -> {
+                if (client.gui.screen() instanceof IPortalInitialScreen screen) screen.onClose();
+            });
+            ctx.waitForScreen(TitleScreen.class);
+            return;
+        }
         out = Path.of(System.getProperty("imm_ptl.visualTest.out", "visual-test"));
         try {
             Files.createDirectories(out);

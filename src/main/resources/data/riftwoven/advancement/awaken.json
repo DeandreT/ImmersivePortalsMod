@@ -1,0 +1,1 @@
+{"parent":"riftwoven:plant","display":{"icon":{"id":"minecraft:echo_shard"},"title":{"translate":"riftwoven.advancement.awaken.title"},"description":{"translate":"riftwoven.advancement.awaken.description"},"show_toast":true,"announce_to_chat":false},"criteria":{"awaken":{"trigger":"minecraft:impossible"}}}

@@ -1,15 +1,15 @@
 modLoader="javafml"
 loaderVersion="[12,)"
 license="Apache-2.0"
-issueTrackerURL="https://github.com/riyadmondol2006/Immersive-portals-mod-Revived-/issues"
+issueTrackerURL="https://github.com/DeandreT/ImmersivePortalsMod/issues"
 
 [[mods]]
 modId="immersive_portals"
 version="${version}"
-displayName="Immersive Portals (Revived)"
+displayName="Riftwoven"
 logoFile="assets/immersive_portals/icon.png"
 authors="qouteall (original author), nyannoying1337 (26.3 port)"
-description='''See through portals and travel between dimensions seamlessly. Unofficial native NeoForge port; report issues to the port, not the original author.'''
+description='''Shape the seed. Discover the world. See through portals and travel between dimensions seamlessly. A development fork of qouteall's Immersive Portals for Minecraft 26.3, based on Immersive Portals Revived and ImmersivelyVibedPortals, with native NeoForge support. Realm Seeds are under development. Report issues to Riftwoven, not the original author.'''
 
 [[dependencies.immersive_portals]]
 modId="neoforge"
@@ -43,27 +43,27 @@ side="BOTH"
 modId="pehkui"
 type="incompatible"
 versionRange="(,3.4.1)"
-reason="Immersive Portals requires Pehkui 3.4.1 or newer."
+reason="Riftwoven requires Pehkui 3.4.1 or newer."
 
 [[dependencies.immersive_portals]]
 modId="canvas"
 type="incompatible"
-reason="Canvas replaces rendering paths required by Immersive Portals."
+reason="Canvas replaces rendering paths required by Riftwoven."
 
 [[dependencies.immersive_portals]]
 modId="vmp"
 type="incompatible"
-reason="VMP replaces server chunk tracking required by Immersive Portals."
+reason="VMP replaces server chunk tracking required by Riftwoven."
 
 [[dependencies.immersive_portals]]
 modId="resolutioncontrol"
 type="incompatible"
-reason="Resolution Control replaces rendering state required by Immersive Portals."
+reason="Resolution Control replaces rendering state required by Riftwoven."
 
 [[dependencies.immersive_portals]]
 modId="gravity_api"
 type="incompatible"
-reason="This Gravity API is incompatible with Immersive Portals."
+reason="This Gravity API is incompatible with Riftwoven."
 
 [[mixins]]
 config="imm_ptl.mixins.json"

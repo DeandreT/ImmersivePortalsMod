@@ -12,7 +12,19 @@
     "common.dim_stack.MixinMinecraftServer_DimStack_CVB",
     "common.end_portal.MixinEnderEyeItem_CVB",
     "common.nether_portal.MixinAbstractFireBlock_CVB",
-    "common.nether_portal.MixinFlintAndSteelItem_CVB"
+    "common.nether_portal.MixinFlintAndSteelItem_CVB",
+    "common.riftwoven.MixinServerPlayer_RealmReceipt",
+    "common.riftwoven.MixinPlayerList_RealmSave",
+    "common.riftwoven.MixinLevel_RealmProtection",
+    "common.riftwoven.MixinPlayer_RealmProtection",
+    "common.riftwoven.MixinServerLevel_RealmProtection",
+    "common.riftwoven.MixinBlockState_RealmProtection",
+    "common.riftwoven.MixinServerPlayerGameMode_RealmProtection",
+    "common.riftwoven.MixinServerPlayerGameMode_RealmRitual",
+    "common.riftwoven.RealmServerLevelMixin",
+    "common.riftwoven.RealmWorldInfoSenderMixin",
+    "common.riftwoven.MixinPlayer_RealmEntityProtection",
+    "common.riftwoven.MixinPistonBaseBlock_RealmProtection"
   ],
   "client": [
     "client.MixinBossHealthOverlay_CVB",
@@ -22,7 +34,13 @@
     "client.dim_stack.MixinCreateWorldScreen_CVB",
     "client.dim_stack.MixinCreateWorldScreenMoreTab_CVB",
     "client.portal_wand.MixinDebugRenderer",
-    "client.portal_wand.MixinMinecraft_PortalWand"
+    "client.portal_wand.MixinMinecraft_PortalWand",
+    "client.riftwoven.RealmClientLevelMixin",
+    "client.riftwoven.RealmClientClockInstanceMixin",
+    "client.riftwoven.RealmSkyRenderStateMixin",
+    "client.riftwoven.RealmSkyRendererMixin",
+    "client.riftwoven.RealmBiomeManagerMixin",
+    "client.riftwoven.RealmBiomeSeedConnectionMixin"
   ],
   "injectors": {
     "defaultRequire": 1

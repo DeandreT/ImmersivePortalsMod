@@ -10,7 +10,8 @@
     "common.MixinMinecraftServer",
     "common.MixinPlayerList",
     "common.MixinPrimaryLevelData",
-    "common.MixinWorldDimensions"
+    "common.MixinWorldDimensions",
+    "common.MixinServerLevel_IndependentSeed"
   ],
   "client": [
     "client.IClientPacketListener",

@@ -2,6 +2,7 @@
 
 import copy
 import errno
+import io
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock, call, patch
+import warnings
 import zipfile
 
 import test_server as launcher
@@ -17,7 +19,8 @@ import test_server as launcher
 
 class ResultValidationTest(unittest.TestCase):
     def setUp(self):
-        self.manifest = {'sha256': 'parent', 'bundles': {'dimlib': 'dimlib', 'cloth': 'cloth'}}
+        self.manifest = {'sha256': 'parent', 'bundles': {
+            'dimlib': 'dimlib', 'cloth': 'cloth', 'iris_bootstrap': 'bootstrap'}}
         self.result = {
             'cases': [{'name': name, 'status': 'PASS', 'assertions': 1}
                       for name in sorted(launcher.expected_case_names())],
@@ -94,34 +97,202 @@ class ResultValidationTest(unittest.TestCase):
 
 
 class ArtifactValidationTest(unittest.TestCase):
+    def setUp(self):
+        self.scratch = tempfile.TemporaryDirectory(prefix='native-recovery-launcher-unit-', dir='/tmp/opencode')
+        self.addCleanup(self.scratch.cleanup)
+        self.root = Path(self.scratch.name)
+        for name in ['gradle.properties', 'settings.gradle', 'neoforge/build.gradle', 'neoforge/settings.gradle',
+                     'neoforge/gradle.properties', 'dimlib/neoforge/build.gradle',
+                     'dimlib/neoforge/settings.gradle', 'dimlib/neoforge/gradle.properties',
+                     'neoforge/iris-bootstrap/build.gradle', 'neoforge/iris-bootstrap/settings.gradle',
+                     'neoforge/iris-bootstrap/gradle.properties']:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('')
+        self.dimlib = self.root / 'dimlib/neoforge/build/libs/dimlib-neoforge-1.1.0+mc26.3.jar'
+        self.dimlib.parent.mkdir(parents=True)
+        self.dimlib.write_bytes(b'unit-validation-archive-not-a-runtime-mod')
+        self.bootstrap = self.root / launcher.BOOTSTRAP_ARTIFACT
+        self.bootstrap.parent.mkdir(parents=True)
+        self.bootstrap.write_bytes(self.library_bytes())
+        self.artifact = self.root / 'parent.jar'
+        self.bundles = [
+            {'identifier': {'group': 'qouteall.dimlib', 'artifact': 'dimlib-neoforge'}, 'path': 'dimlib.jar'},
+            {'identifier': {'group': 'me.shedaniel.cloth', 'artifact': 'cloth-config-neoforge'}, 'path': 'cloth.jar'},
+            {'identifier': {'group': 'qouteall', 'artifact': 'riftwoven-iris-bootstrap'}, 'path': 'bootstrap.jar'},
+        ]
+        root_patch = patch.object(launcher, 'ROOT', self.root)
+        root_patch.start()
+        self.addCleanup(root_patch.stop)
+        self.write_parent()
+
+    def library_bytes(self, *, mod_type='LIBRARY', provider=None, extra=None, omit=()):
+        entries = {
+            'META-INF/MANIFEST.MF': 'Manifest-Version: 1.0\r\n'
+                                  f'FMLModType: {mod_type}\r\n'
+                                  'Automatic-Module-Name: riftwoven.iris.bootstrap\r\n\r\n',
+            launcher.BOOTSTRAP_SERVICE: launcher.BOOTSTRAP_PROVIDER + '\n' if provider is None else provider,
+            launcher.BOOTSTRAP_PROVIDER.replace('.', '/') + '.class': b'class-bytes-for-fixture',
+        }
+        entries.update(extra or {})
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, 'w') as jar:
+            for name, contents in entries.items():
+                if name not in omit:
+                    jar.writestr(name, contents)
+        return stream.getvalue()
+
+    def write_parent(self, *, bootstrap=None, bundles=None, extra=(), omit=()):
+        with zipfile.ZipFile(self.artifact, 'w') as jar:
+            jar.writestr('META-INF/neoforge.mods.toml', '[[mods]]\nmodId="immersive_portals"\nversion="7.1.0-dev"\n')
+            jar.writestr('META-INF/jarjar/metadata.json', json.dumps({'jars': self.bundles if bundles is None else bundles}))
+            for name, data in [('dimlib.jar', self.dimlib.read_bytes()), ('cloth.jar', b'unit-validation-cloth'),
+                               ('bootstrap.jar', self.bootstrap.read_bytes() if bootstrap is None else bootstrap), *extra]:
+                if name not in omit:
+                    jar.writestr(name, data)
+
     def test_requires_native_current_bundles_and_fresh_parent(self):
-        with tempfile.TemporaryDirectory(prefix='native-recovery-launcher-unit-', dir='/tmp/opencode') as scratch:
-            root = Path(scratch)
-            (root / 'neoforge').mkdir()
-            (root / 'gradle.properties').write_text('')
-            (root / 'neoforge/build.gradle').write_text('')
-            dimlib = root / 'dimlib/neoforge/build/libs/dimlib-neoforge-1.1.0+mc26.3.jar'
-            dimlib.parent.mkdir(parents=True)
-            dimlib.write_bytes(b'unit-validation-archive-not-a-runtime-mod')
-            artifact = root / 'parent.jar'
-            bundles = [
-                {'identifier': {'group': 'qouteall.dimlib', 'artifact': 'dimlib-neoforge'}, 'path': 'dimlib.jar'},
-                {'identifier': {'group': 'me.shedaniel.cloth', 'artifact': 'cloth-config-neoforge'}, 'path': 'cloth.jar'},
-            ]
-            with zipfile.ZipFile(artifact, 'w') as jar:
-                jar.writestr('META-INF/neoforge.mods.toml', '[[mods]]\nmodId="immersive_portals"\nversion="7.0.1-dev"\n')
-                jar.writestr('META-INF/jarjar/metadata.json', json.dumps({'jars': bundles}))
-                jar.writestr('dimlib.jar', dimlib.read_bytes())
-                jar.writestr('cloth.jar', b'unit-validation-cloth')
-            with patch.object(launcher, 'ROOT', root):
-                self.assertEqual(launcher.validate_artifact(artifact)['path'], str(artifact))
-                dimlib.write_bytes(b'changed-bundle')
-                with self.assertRaisesRegex(ValueError, 'current native DimLib'):
-                    launcher.validate_artifact(artifact)
-                newer = artifact.stat().st_mtime_ns + 1_000_000_000
-                os.utime(root / 'gradle.properties', ns=(newer, newer))
+        manifest = launcher.validate_artifact(self.artifact)
+        self.assertEqual(manifest['path'], str(self.artifact))
+        self.assertEqual(set(manifest['bundles']), {'dimlib', 'cloth', 'iris_bootstrap'})
+        self.assertEqual(manifest['bundles']['iris_bootstrap'], launcher.sha256(self.bootstrap.read_bytes()))
+        self.dimlib.write_bytes(b'changed-bundle')
+        with self.assertRaisesRegex(ValueError, 'current native DimLib'):
+            launcher.validate_artifact(self.artifact)
+        newer = self.artifact.stat().st_mtime_ns + 1_000_000_000
+        os.utime(self.root / 'gradle.properties', ns=(newer, newer))
+        with self.assertRaisesRegex(ValueError, 'older than production inputs'):
+            launcher.validate_artifact(self.artifact)
+
+    def test_bootstrap_requires_exactly_one_declared_and_physical_bundle(self):
+        for mutation in ['missing', 'duplicate', 'wrong_group', 'wrong_artifact', 'missing_entry', 'duplicate_entry']:
+            with self.subTest(mutation=mutation):
+                bundles = copy.deepcopy(self.bundles)
+                if mutation == 'missing':
+                    bundles.pop()
+                elif mutation == 'duplicate':
+                    bundles.append(copy.deepcopy(bundles[-1]))
+                elif mutation == 'wrong_group':
+                    bundles[-1]['identifier']['group'] = 'other'
+                elif mutation == 'wrong_artifact':
+                    bundles[-1]['identifier']['artifact'] = 'other'
+                extra = [('bootstrap.jar', self.bootstrap.read_bytes())] if mutation == 'duplicate_entry' else []
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore', UserWarning)
+                    self.write_parent(bundles=bundles, extra=extra,
+                                      omit=['bootstrap.jar'] if mutation == 'missing_entry' else [])
+                with self.assertRaisesRegex(ValueError, 'Missing or ambiguous native bundle'):
+                    launcher.validate_artifact(self.artifact)
+
+    def test_bootstrap_wrong_or_missing_library_type_and_mod_metadata_fail(self):
+        invalid = [self.library_bytes(mod_type='MOD'),
+                   self.library_bytes(omit=['META-INF/MANIFEST.MF']),
+                   self.library_bytes(extra={'META-INF/MANIFEST.MF': 'Manifest-Version: 1.0\r\n\r\n'}),
+                   self.library_bytes(extra={'META-INF/neoforge.mods.toml': '[[mods]]\n'}),
+                   self.library_bytes(extra={'fabric.mod.json': '{}'})]
+        for data in invalid:
+            with self.subTest(data=data):
+                self.bootstrap.write_bytes(data)
+                self.write_parent()
+                with self.assertRaisesRegex(ValueError, 'LIBRARY|library archive'):
+                    launcher.validate_artifact(self.artifact)
+
+    def test_bootstrap_wrong_missing_or_multiple_service_providers_fail(self):
+        for data in [self.library_bytes(provider='wrong.Provider\n'),
+                     self.library_bytes(provider=launcher.BOOTSTRAP_PROVIDER + '\nother.Provider\n'),
+                     self.library_bytes(omit=[launcher.BOOTSTRAP_SERVICE])]:
+            with self.subTest(data=data):
+                self.bootstrap.write_bytes(data)
+                self.write_parent()
+                with self.assertRaisesRegex(ValueError, 'service'):
+                    launcher.validate_artifact(self.artifact)
+
+    def test_bootstrap_module_identity_and_main_manifest_section_are_required(self):
+        for manifest in ['Manifest-Version: 1.0\r\nFMLModType: LIBRARY\r\n'
+                         'Automatic-Module-Name: wrong.module\r\n\r\n',
+                         'Manifest-Version: 1.0\r\n\r\nName: other\r\n'
+                         'FMLModType: LIBRARY\r\nAutomatic-Module-Name: riftwoven.iris.bootstrap\r\n\r\n']:
+            self.bootstrap.write_bytes(self.library_bytes(extra={'META-INF/MANIFEST.MF': manifest}))
+            self.write_parent()
+            with self.assertRaisesRegex(ValueError, 'module identity|FMLModType'):
+                launcher.validate_artifact(self.artifact)
+        self.bootstrap.write_bytes(self.library_bytes(extra={'META-INF/MANIFEST.MF':
+            'Manifest-Version: 1.0\r\nFMLModType: LIBRARY\r\nAutomatic-Module-Name: riftwoven.iris.\r\n bootstrap\r\n\r\n'}))
+        self.write_parent()
+        launcher.validate_artifact(self.artifact)
+
+    def test_duplicate_nested_entries_fail_even_with_matching_standalone(self):
+        stream = io.BytesIO(self.bootstrap.read_bytes())
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', UserWarning)
+            with zipfile.ZipFile(stream, 'a') as jar:
+                jar.writestr(launcher.BOOTSTRAP_SERVICE, launcher.BOOTSTRAP_PROVIDER + '\n')
+        self.bootstrap.write_bytes(stream.getvalue())
+        self.write_parent()
+        with self.assertRaisesRegex(ValueError, 'duplicate entries'):
+            launcher.validate_artifact(self.artifact)
+
+    def test_bootstrap_requires_current_standalone_bytes_and_file(self):
+        self.bootstrap.write_bytes(self.library_bytes(extra={'extra-resource': 'different current bytes'}))
+        with self.assertRaisesRegex(ValueError, 'current native Iris bootstrap'):
+            launcher.validate_artifact(self.artifact)
+        self.bootstrap.unlink()
+        with self.assertRaisesRegex(ValueError, 'current native Iris bootstrap'):
+            launcher.validate_artifact(self.artifact)
+
+    def test_nested_crc_and_invalid_zip_fail_even_when_standalone_bytes_match(self):
+        data = bytearray(self.bootstrap.read_bytes())
+        data[data.index(b'class-bytes-for-fixture')] ^= 1
+        for invalid in [bytes(data), b'not-a-library-archive']:
+            with self.subTest(invalid=invalid):
+                self.bootstrap.write_bytes(invalid)
+                self.write_parent()
+                with self.assertRaisesRegex(ValueError, 'CRC|archive'):
+                    launcher.validate_artifact(self.artifact)
+
+    def test_test_helpers_and_extra_or_missing_bootstrap_classes_fail(self):
+        processor = launcher.BOOTSTRAP_PROVIDER.replace('.', '/') + '.class'
+        for data in [self.library_bytes(extra={'qouteall/imm_ptl/recovery_test/Fixture.class': b'helper'}),
+                     self.library_bytes(extra={'qouteall/imm_ptl/client_test/Fixture.class': b'helper'}),
+                     self.library_bytes(extra={'qouteall/imm_ptl/iris_bootstrap/PublishedFixture.class': b'helper'}),
+                     self.library_bytes(omit=[processor])]:
+            with self.subTest(data=data):
+                self.bootstrap.write_bytes(data)
+                self.write_parent()
+                with self.assertRaisesRegex(ValueError, 'test helpers|production ClassProcessor'):
+                    launcher.validate_artifact(self.artifact)
+        for helper in ['qouteall/imm_ptl/client_test/Fixture.class', 'qouteall/imm_ptl/recovery_test/Fixture.class']:
+            self.write_parent(extra=[(helper, b'helper')])
+            with self.assertRaisesRegex(ValueError, 'development harness'):
+                launcher.validate_artifact(self.artifact)
+
+    def test_newer_native_sources_and_build_settings_reject_matching_current_bundle(self):
+        for name in ['neoforge/iris-bootstrap/src/main/java/Processor.java',
+                     'neoforge/iris-bootstrap/src/main/resources/service',
+                     'neoforge/iris-bootstrap/build.gradle', 'neoforge/iris-bootstrap/settings.gradle',
+                     'settings.gradle', 'neoforge/settings.gradle', 'dimlib/neoforge/build.gradle',
+                     'dimlib/neoforge/settings.gradle', 'dimlib/neoforge/gradle.properties']:
+            with self.subTest(name=name):
+                path = self.root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+                self.write_parent()
+                newer = self.artifact.stat().st_mtime_ns + 1_000_000_000
+                os.utime(path, ns=(newer, newer))
                 with self.assertRaisesRegex(ValueError, 'older than production inputs'):
-                    launcher.validate_artifact(artifact)
+                    launcher.validate_artifact(self.artifact)
+                os.utime(path, ns=(0, 0))
+
+    def test_bootstrap_build_and_test_churn_do_not_make_package_stale(self):
+        newer = self.artifact.stat().st_mtime_ns + 1_000_000_000
+        for name in ['neoforge/iris-bootstrap/build/reports/tests/test/index.html',
+                     'neoforge/iris-bootstrap/src/test/java/ProcessorTest.java',
+                     'neoforge/recovery-test/test_launcher.py', 'neoforge/client-test/test_client.py']:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('test-only change')
+            os.utime(path, ns=(newer, newer))
+        launcher.validate_artifact(self.artifact)
 
     def test_no_eula_never_launches_any_process(self):
         with patch('sys.argv', ['test_server.py']), patch.object(launcher.subprocess, 'Popen') as popen:

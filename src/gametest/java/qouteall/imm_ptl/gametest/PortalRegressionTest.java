@@ -80,6 +80,7 @@ import java.util.function.BiPredicate;
 public class PortalRegressionTest implements FabricClientGameTest {
     @Override
     public void runTest(ClientGameTestContext context) {
+        if (Boolean.getBoolean("imm_ptl.realmTest.only")) return;
         context.runOnClient(client -> {
             if (client.gui.screen() instanceof IPortalInitialScreen screen) {
                 screen.onClose();

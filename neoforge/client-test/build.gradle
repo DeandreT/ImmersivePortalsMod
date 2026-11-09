@@ -20,7 +20,7 @@ repositories {
 def shared = new Properties()
 file('../../gradle.properties').withInputStream { shared.load(it) }
 def parentArtifact = file(providers.gradleProperty('parentArtifact').getOrElse(
-    '../build/libs/immersive-portals-7.0.1-dev-mc26.3-neoforge.jar'))
+    '../build/libs/riftwoven-7.1.0-dev-mc26.3-neoforge.jar'))
 def profile = providers.gradleProperty('clientProfile').getOrElse('vanilla')
 if (!(profile in ['vanilla', 'performance', 'performance-iris'])) {
     throw new GradleException("Unknown clientProfile: ${profile}")
@@ -55,8 +55,13 @@ neoForge {
             jvmArguments.addAll('-XX:ActiveProcessorCount=2', '-Xmx2G', '-Djava.awt.headless=true')
             def run = providers.gradleProperty('clientRunDir').getOrNull()
             if (run != null) { jvmArgument("-Duser.home=${file(run)}/home") }
+            if (providers.environmentVariable('IP_NATIVE_MIXIN_CLASS_TRACE').getOrElse('false') == 'true') {
+                def report = providers.gradleProperty('clientReportDir').get()
+                // Client JVM only; bounded rotation remains in the retained owned report, not its disposable world.
+                jvmArgument("-Xlog:class+load=info,class+init=info:file=${file(report)}/class-load-init.log:uptimemillis,level,tags:filecount=4,filesize=8M")
+            }
             ['clientRunDir', 'clientNonce', 'clientReportDir', 'parentArtifactSha256',
-             'dimlibSha256', 'clothSha256', 'awayTicks', 'shaderPackExpected'].each { key ->
+             'dimlibSha256', 'clothSha256', 'awayTicks', 'shaderPackExpected', 'realm'].each { key ->
                 systemProperty("ip.nativeClient.${key}", providers.gradleProperty(key).getOrElse(''))
             }
             systemProperty('ip.nativeClient.parentArtifact', parentArtifact.absolutePath)

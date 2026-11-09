@@ -50,7 +50,8 @@ public class IPModEntryClient {
             GlobalTrackedPortal.ENTITY_TYPE,
             WorldWrappingPortal.ENTITY_TYPE,
             VerticalConnectingPortal.ENTITY_TYPE,
-            GeneralBreakablePortal.ENTITY_TYPE
+            GeneralBreakablePortal.ENTITY_TYPE,
+            qouteall.imm_ptl.peripheral.riftwoven.Riftwoven.REALM_PORTAL
         }).forEach(
             entityType -> ClientPlatformHooks.registerRenderer(
                 entityType,

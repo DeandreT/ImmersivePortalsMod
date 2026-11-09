@@ -58,6 +58,7 @@ import java.util.concurrent.CompletableFuture;
 public class IrisDepthRegressionTest implements FabricClientGameTest {
     @Override
     public void runTest(ClientGameTestContext context) {
+        if (Boolean.getBoolean("imm_ptl.realmTest.only")) return;
         if (!Boolean.getBoolean("imm_ptl.irisDepthTest")) {
             return;
         }

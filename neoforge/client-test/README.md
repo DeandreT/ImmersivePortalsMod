@@ -15,10 +15,14 @@ the helper never substitutes a title screen or suppresses fatal errors.
 ## Run after the build/runtime slot is released
 
 Prerequisites: the existing Java 25 installation, current packaged native
-`7.0.1-dev` parent and matching DimLib artifact, Gradle/NeoForm assets, `ffmpeg`,
+`7.1.0-dev` parent and matching DimLib/early-Iris-bootstrap artifacts, Gradle/NeoForm assets, `ffmpeg`,
 and the maintained private-display wrapper and its existing prerequisites.
 Nothing installs a JDK or system tools. Stale production inputs/bundles are
 rejected; the runner never builds/substitutes the main mod.
+
+The bundled early processor must be the current standalone `iris-bootstrap` jar,
+with its FML `LIBRARY` manifest and raw `ClassProcessor` service intact. Native
+`buildAll` builds it; published optional-mod files and dependency checks are unchanged.
 
 After changing a compile-only compatibility pin, Gradle can leave a byte-identical
 parent jar up-to-date while the source-freshness check still requires repackaging.
@@ -77,6 +81,129 @@ Other options:
   the normal idle-renderer lifecycle to run. Range 200–4000. Reports record the
   actual interval; a shorter explicit interval is not long-idle coverage.
 
+## Optional Riftwoven realm scenario
+
+Add `--realm` to select the separate survival realm qualification. Omitting it
+keeps the original Nether scenario, all three original screenshots/color crops,
+both original predicted-crossing assertions, and the same rendering/profile
+settings. The default parent filename is
+`neoforge/build/libs/riftwoven-7.1.0-dev-mc26.3-neoforge.jar`.
+
+```sh
+JAVA_HOME="$HOME/.cache/immersive-portals/toolchains/jdk-25" \
+GRADLE_USER_HOME="$HOME/.cache/immersive-portals/gradle" \
+python3 neoforge/client-test/test_client.py --accept-eula --offline --realm \
+  --display-wrapper /home/deandre/projects/rust/OpenChamber/scripts/parity/virtual_display.py \
+  --profile vanilla --away-ticks 200
+```
+
+Use the same `--profile performance`, `--profile performance-iris`, and explicit
+`--shader-pack` inputs to qualify those actual packaged native profiles. The Iris
+gate is unchanged. `--away-ticks` now applies to the realm; 200 ticks is a short
+smoke interval, while the unchanged default is 2600 ticks.
+
+This scenario requires its own evidence, never a fabricated Nether prediction:
+
+- A genuine survival integrated-server player and real planted seed/valid stone,
+  crying-obsidian and amethyst formation. Fixture setup supplies blocks/items;
+  it does not qualify mining, crafting, or player block placement.
+- Public core offering/withdrawal/re-offering with actual saved player inventory;
+  the recipe is 16 moss, 16 glowstone and one echo shard. Public ledger awakening
+  spends exactly four of eight diamonds, creates one finite realm, and commits
+  two suns/one moon. The main mod and DimLib run from their exact packaged jars.
+- Actual independent `ServerLevel.getSeed()`, generator/profile and finite border;
+  a normal world save followed by durable journal close/reopen and paid retry
+  preserves the same world, seed and four remaining diamonds. This is **not** a
+  shutdown/restart or reconnect test.
+- A manually configured **real private `RealmPortal`**, with a durable departure
+  and the production view/entry/platform admission gates intact. The client must
+  receive that UUID-addressed entity and real generated destination chunks,
+  match a natural terrain block from the server, and extract the realm's own sky
+  while still outside. No private reflection or new production hook is used.
+- The normal forward movement key enters through the production portal predictor;
+  the real server request and registered, position-matched client/server landing
+  must settle with no pending teleport. There is no command dimension transfer.
+- Dimension-addressed environment RPC delivery must yield the committed layout,
+  independent real server/client clock rates/times, and advancing physical time.
+  A read-only sky observer requires actual two-sun extraction and two ordinary
+  sun draws in a realm sky render. After genuine arrival, photographic setup
+  clears weather through the normal realm sleep state (`sleep(cycle, false, true)`),
+  without changing the frozen weather recipe, advancing the clock to a chosen
+  time, or altering Overworld weather. Both actual server/client rain and thunder
+  must fade to zero for sixty settled ticks, with fresh two-sun draws during that
+  clear interval, before the east-facing sky photograph. Screenshots do **not**
+  count visible sun pixels; body legibility still needs image inspection.
+- After entry, a documented **same-dimension** camera reposition uses unmodified
+  generated dry terrain for terrain/sky captures; no realm terrain is painted as
+  a screenshot marker. The terrain photograph keeps its minimum hundred-tick
+  settlement and additionally waits for five consecutive actual same-dimension,
+  same-camera draws
+  with the expected camera/orientation, positive compiled camera-floor geometry,
+  compiled nearby visible nonair foreground, loaded/light-enabled neighbors and
+  no pending compile work. Empty air needs no geometry; compiled occluded solid
+  sections need no positive mesh. A bounded stall fails rather than rebuilding
+  terrain or changing rendering settings. Initial pre-ready diagnostics remain
+  separate from the final photograph's exact frozen draw state.
+  Render pre/post frame identity also requires a fresh main solid-draw observation
+  in the exact frame captured; a retained ready snapshot cannot qualify a frame
+  with no main draw. Return calls the
+  permanent core's public `useCore` API,
+  which uses the maintained return admission/rollback path. Return is **not**
+  reported as another predicted portal crossing or a physical core click.
+  The departure must survive until the genuine ACK and clear after settled exit.
+- The returned Overworld must have no realm clock attachment. Normal terrain
+  rebuild, four original framebuffer captures, active shader-pack checks when
+  requested, and a fresh-JVM Mixin audit are required. Audit checks application
+  of applicable targets, not every gameplay path or absent optional mod.
+
+The realm scenario requires five captures. The four original captures remain
+`realm-portal-view.png`, `realm-terrain.png`,
+`realm-sky.png`, and `realm-return.png`. Since natural terrain has no fixed marker
+colors, the realm supervisor checks their actual size, decoded nonblank RGB
+variation and exposure; it retains the images for inspection. This does not
+establish visual quality by itself: nonblank terrain can still have missing
+geometry. Inspect the images in addition to the mesh/readiness evidence. This does
+not weaken or replace the baseline's strict red/green crop oracle. A shader pack that
+suppresses the ordinary two-sun rendering path fails this qualification instead
+of receiving an unverified celestial pass.
+
+After those original entry/return checks, the realm runner also captures
+`realm-terrain-replay.png` in a separate, explicitly diagnostic dimension. Public
+`RealmChunkGenerator.create` and `DimensionAPI.addDimensionDynamically` reproduce
+seed `-8484714376220950612` with the same recipe. Only block states from the real
+protected arrival enclosure are copied; no paid record, journal, RNG state or
+block-entity identity is copied or changed. Dimension-addressed obfuscated biome
+metadata is published before requesting replay chunks. An ordinary public Portal
+uses the same doorway geometry and real forward-key prediction, followed by the
+recorded same-dimension camera position `(24.5, 68, 24.5)`, yaw 135, pitch 12.
+Weather clears through the normal realm sleep policy. General `PortalAPI` travel
+returns the player safely, with real client/server ACK settlement.
+
+Supplemental evidence is under `terrain_replay`, separate from the four original
+ordered landing snapshots and original pre-replay prediction list. The full raw
+prediction list retains both actual crossings. This does not qualify private
+`RealmPortal`/ledger admission and runs later in the JVM than the first crossing.
+The diagnostic photograph requires matching natural grass/support, settled
+server/client positions, actual draw camera/orientation, disabled main-view portal
+clipping and nearby compiled ground geometry. Replay also waits through temporary
+not-ready frames, with the same five-fresh-draw, bounded capture gate. Sodium
+uses coordinate-addressed built state, current render-list membership and a
+positive SOLID vertex allocation for the actual camera-floor section, plus
+nearby visible foreground built state and no pending work. Read-only reflection
+is tied to the pinned native Sodium APIs; missing evidence fails closed instead
+of substituting an aggregate visible-geometry count. Client light readiness uses
+the light engine's enabled columns, not the server-generation `isLightCorrect`
+flag. Diagnostics retain block columns, independently scanned heights,
+section populations, light readiness and visible mesh counts. These checks do not
+prove every terrain face is correct: inspect the actual image, and do not treat a
+different random seed's clean image as resolving a defect in the frozen seed.
+
+Successful realm supervision writes **`PASS_REALM_SINGLE_CLIENT_LOCAL`**, not
+the baseline status. Full physical sixty-tick awakening/open rituals, real TCP,
+reconnect/restart, concurrent players, dedicated admission, renderer eviction and
+performance budgets remain outside this scenario; the physical ritual has its
+separate Fabric TCP regression.
+
 The internal `runSmokeClient` task is guarded by an owned-world nonce and another
 display verification. Do not invoke it directly. If a separate compile-only check
 is wanted after the build slot is released, this starts **no game/display**:
@@ -90,8 +217,10 @@ GRADLE_USER_HOME="$HOME/.cache/immersive-portals/gradle" \
 
 ## Positive evidence required
 
-The test-only mod is physically client-gated. Its mixins are read-only observers
-at returns from actual configuration/payload/prediction handlers; they do not
+The test-only mod is physically client-gated. Protocol mixins are read-only observers
+at returns from actual configuration/payload/prediction handlers. Separate
+read-only render observers inspect the ordinary opaque draw, and an accessor
+reads the actual client biome seed. These observers do not
 replace callbacks, cancel methods, mutate protocol state, fabricate incoming
 teleport acknowledgements, or use mock connections/EmbeddedChannels.
 

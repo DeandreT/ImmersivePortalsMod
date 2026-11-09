@@ -17,6 +17,6 @@ side="SERVER"
 [[dependencies.ip_native_recovery_test]]
 modId="immersive_portals"
 type="required"
-versionRange="[7.0.1-dev]"
+versionRange="[7.1.0-dev]"
 ordering="AFTER"
 side="SERVER"
